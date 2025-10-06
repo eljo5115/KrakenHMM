@@ -1,0 +1,8 @@
+HTTP API listening on 0.0.0.0:8765
+Seeding history from REST for past 365 days...
+Model is not converging.  Current: -251.45935040774367 is not greater than -251.45792392986243. Delta is -0.0014264778812389522
+Model is not converging.  Current: -1424.208200200778 is not greater than -1415.5112147753525. Delta is -8.69698542542551
+Model is not converging.  Current: -913.534666295752 is not greater than -909.2090356898757. Delta is -4.325630605876313
+Seeding complete. Fitting models...
+Model is not converging.  Current: -1333.5184128222684 is not greater than -1333.5162852299593. Delta is -0.0021275923090797733
+Models saved to models

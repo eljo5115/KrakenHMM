@@ -1,0 +1,17 @@
+# systemd unit file for KrakenHMM trader (template)
+# Install to /etc/systemd/system/trader.service and edit the paths as needed.
+[Unit]
+Description=KrakenHMM Trader Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/eli/KrakenHMM
+ExecStart=/home/eli/KrakenHMM/scripts/run_trader_service.sh start
+ExecStop=/home/eli/KrakenHMM/scripts/run_trader_service.sh stop
+Restart=on-failure
+User=eli
+Group=eli
+
+[Install]
+WantedBy=multi-user.target
