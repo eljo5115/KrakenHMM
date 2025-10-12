@@ -57,12 +57,17 @@ class Trader:
         self.trade_log_file = None
         # snapshot of the last allocation set that was executed (pair->capital)
         # used to ensure allocations are applied only once per unique set.
+        # _last_desired_allocs: the desired allocation set computed (pair->capital)
+        # _last_executed_allocs: the subset that was actually executed (pair->capital)
+        self._last_desired_allocs = None
         self._last_executed_allocs = None
         # date (UTC YYYYMMDD) when allocations were last applied. Used to
         # implement the once-per-day train->buy cycle.
         self._last_allocation_date = None
         # cache last written json line to avoid duplicate consecutive writes
         self._last_written_line = None
+        # track pending sell attempts: pair -> {'attempts': int, 'next_try_ts': float}
+        self._sell_attempts = {}
         # persistent state file to survive restarts (positions, allocation snapshot, last allocation date)
         self.state_file = os.path.join("state", "trader_state.json")
 
@@ -209,12 +214,16 @@ class Trader:
         return {p: per for p in top}
 
     # Placeholder order execution
-    async def execute_allocations(self, allocs: Dict[str, float]):
+    async def execute_allocations(self, allocs: Dict[str, float]) -> Dict[str, float]:
         """Pretend to place orders - replace with REST order calls to Kraken.
 
         This function updates positions map as if orders filled immediately.
+
+        Returns a mapping of pairs that were actually executed (pair -> capital).
         """
-        # if order execution is enabled and API credentials provided, place real market orders
+        # executed: collect pairs that were successfully bought (pair -> capital)
+        executed: Dict[str, float] = {}
+    # if order execution is enabled and API credentials provided, place real market orders
         if self.execute_orders and self.api_key and self.api_secret:
             try:
                 from .api import place_market_order
@@ -224,21 +233,8 @@ class Trader:
                     if price is None or price <= 0:
                         continue
                     qty = cap / price
-                    # log planned trade (live mode)
-                    plan = {
-                        "ts": int(time.time()),
-                        "type": "plan",
-                        "mode": "live",
-                        "pair": pair,
-                        "qty": qty,
-                        "price": price,
-                        "capital": cap,
-                        "would_execute": True,
-                    }
-                    try:
-                        self._write_trade(plan)
-                    except Exception:
-                        pass
+                    # Do not persist "plan" records to disk in live mode.
+                    # We will only write actual executed buys/sells to the trade log.
                     # place market buy order (Kraken expects pair without slash in our helper)
                     try:
                         result = await place_market_order(pair, qty, side="buy", api_key=self.api_key, api_secret=self.api_secret)
@@ -318,6 +314,11 @@ class Trader:
                             self._write_trade(rec)
                         except Exception:
                             pass
+                        # record that this pair executed
+                        try:
+                            executed[pair] = cap
+                        except Exception:
+                            pass
                         # persist state after successful buy
                         try:
                             self.save_state()
@@ -344,11 +345,13 @@ class Trader:
                         "capital": cap,
                         "would_execute": False,
                     }
+                    # Do not persist simulated/fallback plan records; only persist buys
+                    self.positions[pair] = Position(pair=pair, qty=qty, entry_price=price)
+                    # record executed
                     try:
-                        self._write_trade(plan)
+                        executed[pair] = cap
                     except Exception:
                         pass
-                    self.positions[pair] = Position(pair=pair, qty=qty, entry_price=price)
                     # log fallback/simulated buy
                     rec = {
                         "ts": int(time.time()),
@@ -363,6 +366,7 @@ class Trader:
                         self._write_trade(rec)
                     except Exception:
                         pass
+                    # nothing to clear (no persisted plan)
                     # persist state after simulated/fallback buy
                     try:
                         self.save_state()
@@ -370,10 +374,10 @@ class Trader:
                         pass
         else:
             # simulated fills
-            for pair, cap in allocs.items():
-                price = self.prices.get(pair, [])[-1]
-                if price is None:
-                    continue
+                for pair, cap in allocs.items():
+                    price = self.prices.get(pair, [])[-1]
+                    if price is None:
+                        continue
                 qty = cap / price
                 # compute thresholds from model if possible
                 stop_price = None
@@ -410,11 +414,19 @@ class Trader:
                     self._write_trade(rec)
                 except Exception:
                     pass
+                # record executed simulated buy
+                    try:
+                        executed[pair] = cap
+                    except Exception:
+                        pass
                 # single simulated buy record written above
-                try:
-                    self.save_state()
-                except Exception:
-                    pass
+                    try:
+                        self.save_state()
+                    except Exception:
+                        pass
+
+        # return mapping of actually executed buys
+        return executed
 
     # High level tick - called when new data arrives
     async def on_tick(self, pair: str, price: float, volume: Optional[float] = None):
@@ -430,6 +442,11 @@ class Trader:
         # Determine today's UTC date string.
         utc_day = datetime.datetime.utcnow().strftime("%Y%m%d")
         allocs = self.allocate()
+        # record desired allocation snapshot (what we computed this tick)
+        try:
+            self._last_desired_allocs = dict(allocs)
+        except Exception:
+            self._last_desired_allocs = allocs
         if not allocs:
             # nothing to do
             pass
@@ -439,24 +456,35 @@ class Trader:
 
             # First allocation of the day: apply entire allocation set once
             if self._last_allocation_date != utc_day:
-                # if the allocation set differs from last executed, execute missing
-                if allocs != self._last_executed_allocs:
+                # if the desired allocation set differs from last desired, execute missing
+                if allocs != self._last_desired_allocs:
                     if missing:
-                        await self.execute_allocations(missing)
+                        executed = await self.execute_allocations(missing)
+                    else:
+                        executed = {}
+                    # persist snapshots: what we wanted vs what actually executed
                     try:
-                        self._last_executed_allocs = dict(allocs)
+                        self._last_executed_allocs = dict(executed)
                     except Exception:
-                        self._last_executed_allocs = allocs
+                        self._last_executed_allocs = executed
+                    try:
+                        self._last_desired_allocs = dict(allocs)
+                    except Exception:
+                        self._last_desired_allocs = allocs
                 self._last_allocation_date = utc_day
             else:
                 # same UTC day: allow re-entry for any desired pair we don't hold
                 if missing:
-                    await self.execute_allocations(missing)
-                    # after re-entry, update last_executed_allocs to current desired set
+                    executed = await self.execute_allocations(missing)
+                    # after re-entry, update snapshots
                     try:
-                        self._last_executed_allocs = dict(allocs)
+                        self._last_executed_allocs = dict(executed)
                     except Exception:
-                        self._last_executed_allocs = allocs
+                        self._last_executed_allocs = executed
+                    try:
+                        self._last_desired_allocs = dict(allocs)
+                    except Exception:
+                        self._last_desired_allocs = allocs
 
         # Check open positions for stop-loss / take-profit triggers for this pair
         pos = self.positions.get(pair)
@@ -474,21 +502,39 @@ class Trader:
             if triggered:
                 # close the position via market sell
                 qty = pos.qty
-                try:
-                    result = None
-                    mode = "simulated"
-                    if self.execute_orders and self.api_key and self.api_secret:
-                        from .api import place_market_order
+                # ensure we only attempt a live sell when next_try_ts allows
+                now_ts = time.time()
+                attempt = self._sell_attempts.get(pair, {"attempts": 0, "next_try_ts": 0.0})
+                if now_ts < attempt.get("next_try_ts", 0.0):
+                    # not yet time to retry; skip for now
+                    return
 
+                result = None
+                sold = False
+                if self.execute_orders and self.api_key and self.api_secret:
+                    from .api import place_market_order
+
+                    try:
+                        result = await place_market_order(pair, qty, side="sell", api_key=self.api_key, api_secret=self.api_secret)
+                        sold = True
+                    except Exception as e:
+                        # on failure, increment attempts and schedule next try (exponential backoff)
+                        attempt_count = attempt.get("attempts", 0) + 1
+                        # backoff: min 60s, exponential growth (2^attempt) capped at 3600s
+                        backoff = min(3600, 60 * (2 ** (attempt_count - 1)))
+                        next_try = now_ts + backoff
+                        self._sell_attempts[pair] = {"attempts": attempt_count, "next_try_ts": next_try}
+                        print(f"Live sell attempt {attempt_count} failed for {pair}: {e}. Next try in {backoff}s")
+                        # persist attempt info
                         try:
-                            result = await place_market_order(pair, qty, side="sell", api_key=self.api_key, api_secret=self.api_secret)
-                            mode = "live"
+                            self.save_state()
                         except Exception:
-                            # if sell fails, keep position open
-                            return
-                    # simulated sell / or after successful sell: remove position
+                            pass
+
+                if sold:
+                    # successful live sell: log and remove position
+                    mode = "live"
                     print(f"Closing position {pair} at {cur_price} due to {reason}")
-                    # log the sell
                     entry = pos.entry_price
                     pnl = None
                     pnl_pct = None
@@ -516,14 +562,26 @@ class Trader:
                         self._write_trade(rec)
                     except Exception:
                         pass
-                    self.positions.pop(pair, None)
-                    # persist state after sell/close
+                    # clear any pending attempt record
+                    try:
+                        self._sell_attempts.pop(pair, None)
+                    except Exception:
+                        pass
+                    try:
+                        self._pending_plans.pop(pair, None)
+                    except Exception:
+                        pass
+                    try:
+                        self.positions.pop(pair, None)
+                    except Exception:
+                        pass
                     try:
                         self.save_state()
                     except Exception:
                         pass
-                except Exception:
-                    # any error: keep position
+                else:
+                    # not sold this tick; keep position and retry later
+                    # (we already recorded attempt and next_try_ts above)
                     pass
 
     def save_models(self, models_dir: str = "models"):
@@ -565,8 +623,10 @@ class Trader:
         tmp = self.state_file + '.tmp'
         state = {
             'positions': {p: {'qty': pos.qty, 'entry_price': pos.entry_price, 'stop_price': pos.stop_price, 'take_price': pos.take_price} for p, pos in self.positions.items()},
+            'last_desired_allocs': self._last_desired_allocs,
             'last_executed_allocs': self._last_executed_allocs,
             'last_allocation_date': self._last_allocation_date,
+            'sell_attempts': self._sell_attempts,
         }
         with open(tmp, 'w') as f:
             json.dump(state, f)
@@ -583,8 +643,10 @@ class Trader:
             self.positions = {}
             for p, info in posd.items():
                 self.positions[p] = Position(pair=p, qty=float(info.get('qty', 0.0)), entry_price=info.get('entry_price'), stop_price=info.get('stop_price'), take_price=info.get('take_price'))
+            self._last_desired_allocs = state.get('last_desired_allocs')
             self._last_executed_allocs = state.get('last_executed_allocs')
             self._last_allocation_date = state.get('last_allocation_date')
+            self._sell_attempts = state.get('sell_attempts', {})
         except Exception:
             # ignore load errors and continue with empty state
             return

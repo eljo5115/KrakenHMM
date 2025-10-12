@@ -210,28 +210,12 @@ async def main(total_capital: float = 1000.0, n_assets: int = 5, debug: bool = F
         # Windows or environments where loop signal handlers not supported
         pass
 
-    # choose stream source: live websocket or simulated
-    stream = None
-    # choose stream source: REST, websocket, or simulated
+    # choose whether to use REST/websocket or simulated sources
     use_rest = False
     try:
-        # CLI flag will set an attribute on main() caller if present
         use_rest = getattr(main, "use_rest", False)
     except Exception:
         use_rest = False
-
-    if use_rest and ticker_stream is not None:
-        # import rest stream from api
-        try:
-            from kraken_hmm.api import rest_ticker_stream
-
-            stream = rest_ticker_stream(PAIRS, interval=1.0)
-        except Exception:
-            stream = simulated_ticker_stream(PAIRS, interval=0.05, max_ticks=max_ticks)
-    elif simulate or ticker_stream is None:
-        stream = simulated_ticker_stream(PAIRS, interval=0.05, max_ticks=max_ticks)
-    else:
-        stream = ticker_stream(PAIRS)
 
     # If enabled, start a tiny HTTP API for health and positions
     api_runner = None
@@ -284,59 +268,69 @@ async def main(total_capital: float = 1000.0, n_assets: int = 5, debug: bool = F
         # load time. Print a clear warning so the operator can install deps.
         print("--enable-api requested but aiohttp is not available; HTTP API disabled")
 
-    async for tick in stream:
-        pair = tick.get("pair")
-        price = tick.get("price")
-        volume = tick.get("volume")
-        ts = tick.get("time") or int(time.time())
-        if pair and price:
-            if debug:
-                # In debug mode: update series and attempt to fit models early (if possible)
-                trader.add_price(pair, price, volume, ts=ts)
-                # do not call try_fit per-tick when we seeded at startup; only allow per-tick fits
-                # when no initial seeding occurred (keeps training one-time)
-                if not initial_debug_printed:
-                    trader.try_fit(pair)
+    # Main streaming loop with reconnect/backoff.
+    # This loop will recreate the selected stream on errors or clean disconnects
+    # instead of allowing the process to exit (which was causing clean shutdowns).
+    backoff = 1.0
+    max_backoff = 60.0
+    while not stop.is_set():
+        stream = None
+        # build the appropriate stream generator for this attempt
+        try:
+            if use_rest and ticker_stream is not None:
+                from kraken_hmm.api import rest_ticker_stream
 
-                # Try to initialize/fit models for pairs that lack models but have some history
-                for p, prices in list(trader.prices.items()):
-                    if p not in trader.models and len(prices) >= 3:
-                        # create and try fitting with available history (up to min_history)
-                        try:
-                            trader.ensure_model(p)
-                            hist = prices[-min(len(prices), trader.min_history):]
-                            trader.models[p].fit(hist)
-                        except Exception:
-                            # if fit fails, remove model entry to keep diagnostics clean
-                            trader.models.pop(p, None)
+                stream = rest_ticker_stream(PAIRS, interval=1.0)
+            elif simulate or ticker_stream is None:
+                stream = simulated_ticker_stream(PAIRS, interval=0.05, max_ticks=max_ticks)
+            else:
+                stream = ticker_stream(PAIRS)
+        except Exception as e:
+            print("Failed to create stream, falling back to simulated stream:", e)
+            stream = simulated_ticker_stream(PAIRS, interval=0.05, max_ticks=max_ticks)
 
-                # If we already printed the initial (one-time) debug snapshot after seeding,
-                # avoid reprinting full per-model diagnostics every tick. Print a concise line instead.
-                if initial_debug_printed:
-                    print(f"tick pair={pair} price={price:.6f} history={len(trader.prices.get(pair, []))}")
-                    # In debug mode, show what trades WOULD be made (planned allocations)
-                    # only when execution is disabled.
-                    if debug and not trader.execute_orders:
-                        allocs = trader.allocate()
-                        if allocs:
-                            print("--- Planned Trades (debug, no execution) ---")
-                            # decide whether to persist plans: only when the allocation set
-                            # changed since the last logged set. This avoids writing identical
-                            # plan entries every tick during debug.
-                            last_logged = getattr(trader, "_last_logged_allocs", None)
-                            should_log = last_logged != allocs
-                            for ap, cap in allocs.items():
-                                last_prices = trader.prices.get(ap, [])
-                                if not last_prices:
-                                    continue
-                                last_price = last_prices[-1]
-                                qty = cap / last_price if last_price and last_price > 0 else 0.0
-                                sharpe = trader.compute_sharpe_for_pair(ap)
-                                sharpe_s = f"{sharpe:.6f}" if sharpe is not None else "n/a"
-                                print(f"plan pair={ap} capital={cap:.2f} price={last_price:.6f} qty={qty:.6f} sharpe={sharpe_s}")
-                            # persist planned trades only once per unique allocation set
-                            if should_log:
+        try:
+            async for tick in stream:
+                pair = tick.get("pair")
+                price = tick.get("price")
+                volume = tick.get("volume")
+                ts = tick.get("time") or int(time.time())
+                if pair and price:
+                    if debug:
+                        # In debug mode: update series and attempt to fit models early (if possible)
+                        trader.add_price(pair, price, volume, ts=ts)
+                        # do not call try_fit per-tick when we seeded at startup; only allow per-tick fits
+                        # when no initial seeding occurred (keeps training one-time)
+                        if not initial_debug_printed:
+                            trader.try_fit(pair)
+
+                        # Try to initialize/fit models for pairs that lack models but have some history
+                        for p, prices in list(trader.prices.items()):
+                            if p not in trader.models and len(prices) >= 3:
+                                # create and try fitting with available history (up to min_history)
                                 try:
+                                    trader.ensure_model(p)
+                                    hist = prices[-min(len(prices), trader.min_history):]
+                                    trader.models[p].fit(hist)
+                                except Exception:
+                                    # if fit fails, remove model entry to keep diagnostics clean
+                                    trader.models.pop(p, None)
+
+                        # If we already printed the initial (one-time) debug snapshot after seeding,
+                        # avoid reprinting full per-model diagnostics every tick. Print a concise line instead.
+                        if initial_debug_printed:
+                            print(f"tick pair={pair} price={price:.6f} history={len(trader.prices.get(pair, []))}")
+                            # In debug mode, show what trades WOULD be made (planned allocations)
+                            # only when execution is disabled.
+                            if debug and not trader.execute_orders:
+                                allocs = trader.allocate()
+                                if allocs:
+                                    print("--- Planned Trades (debug, no execution) ---")
+                                    # decide whether to persist plans: only when the allocation set
+                                    # changed since the last logged set. This avoids writing identical
+                                    # plan entries every tick during debug.
+                                    last_logged = getattr(trader, "_last_logged_allocs", None)
+                                    should_log = last_logged != allocs
                                     for ap, cap in allocs.items():
                                         last_prices = trader.prices.get(ap, [])
                                         if not last_prices:
@@ -344,70 +338,78 @@ async def main(total_capital: float = 1000.0, n_assets: int = 5, debug: bool = F
                                         last_price = last_prices[-1]
                                         qty = cap / last_price if last_price and last_price > 0 else 0.0
                                         sharpe = trader.compute_sharpe_for_pair(ap)
-                                        plan_rec = {
-                                            "ts": int(ts),
-                                            "type": "plan",
-                                            "mode": "debug",
-                                            "pair": ap,
-                                            "qty": qty,
-                                            "price": last_price,
-                                            "capital": cap,
-                                            "sharpe": sharpe,
-                                        }
-                                        trader._write_trade(plan_rec)
-                                    # update last-logged snapshot
-                                    trader._last_logged_allocs = dict(allocs)
-                                except Exception:
-                                    pass
+                                        sharpe_s = f"{sharpe:.6f}" if sharpe is not None else "n/a"
+                                        print(f"plan pair={ap} capital={cap:.2f} price={last_price:.6f} qty={qty:.6f} sharpe={sharpe_s}")
+                                    # do not persist planned trades even in debug mode; printing to stdout is sufficient
+                                    if should_log:
+                                        trader._last_logged_allocs = dict(allocs)
+                                else:
+                                    print("(no planned trades)")
                         else:
-                            print("(no planned trades)")
-                else:
-                    # collect diagnostics across models
-                    diagnostics = []
-                    for p in sorted(trader.prices.keys()):
-                        history_len = len(trader.prices.get(p, []))
-                        has_model = p in trader.models
-                        line = f"pair={p} history={history_len} model={'yes' if has_model else 'no'}"
-                        print(line)
+                            # collect diagnostics across models
+                            diagnostics = []
+                            for p in sorted(trader.prices.keys()):
+                                history_len = len(trader.prices.get(p, []))
+                                has_model = p in trader.models
+                                line = f"pair={p} history={history_len} model={'yes' if has_model else 'no'}"
+                                print(line)
 
-                    for p, model in trader.models.items():
-                        prices = trader.prices.get(p, [])
-                        try:
-                            means, stds = model.state_stats()
-                            # predict state if enough recent data
-                            state = None
-                            if len(prices) >= trader.recent_window + 1:
+                            for p, model in trader.models.items():
+                                prices = trader.prices.get(p, [])
                                 try:
-                                    vols = trader.volumes.get(p)
-                                    recent_vols = vols[-trader.recent_window:] if vols is not None else None
-                                    state = model.predict_state(prices[-trader.recent_window:], recent_volumes=recent_vols)
-                                except Exception:
+                                    means, stds = model.state_stats()
+                                    # predict state if enough recent data
                                     state = None
-                            sharpe = trader.compute_sharpe_for_pair(p)
-                            diagnostics.append((p, sharpe, state, means, stds))
-                        except Exception:
-                            continue
+                                    if len(prices) >= trader.recent_window + 1:
+                                        try:
+                                            vols = trader.volumes.get(p)
+                                            recent_vols = vols[-trader.recent_window:] if vols is not None else None
+                                            state = model.predict_state(prices[-trader.recent_window:], recent_volumes=recent_vols)
+                                        except Exception:
+                                            state = None
+                                    sharpe = trader.compute_sharpe_for_pair(p)
+                                    diagnostics.append((p, sharpe, state, means, stds))
+                                except Exception:
+                                    continue
 
-                    # print ranking sorted by sharpe
-                    if diagnostics:
-                        # sort by sharpe, putting None scores last
-                        diagnostics.sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else -999.0), reverse=True)
-                        print("\n--- HMM Debug Snapshot ---")
-                        for p, score, state, means, stds in diagnostics:
-                            score_s = f"{score:.6f}" if score is not None else "n/a"
-                            s = f"pair={p} sharpe={score_s}"
-                            if state is not None:
-                                s += f" predicted_state={state}"
-                            s += f" means={['{:.4e}'.format(m) for m in means]} stds={['{:.4e}'.format(sv) for sv in stds]}"
-                            print(s)
+                            # print ranking sorted by sharpe
+                            if diagnostics:
+                                # sort by sharpe, putting None scores last
+                                diagnostics.sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else -999.0), reverse=True)
+                                print("\n--- HMM Debug Snapshot ---")
+                                for p, score, state, means, stds in diagnostics:
+                                    score_s = f"{score:.6f}" if score is not None else "n/a"
+                                    s = f"pair={p} sharpe={score_s}"
+                                    if state is not None:
+                                        s += f" predicted_state={state}"
+                                    s += f" means={['{:.4e}'.format(m) for m in means]} stds={['{:.4e}'.format(sv) for sv in stds]}"
+                                    print(s)
+                            else:
+                                print("(no fitted HMM models yet — collecting history)")
                     else:
-                        print("(no fitted HMM models yet — collecting history)")
-            else:
-                await trader.on_tick(pair, price, volume)
+                        await trader.on_tick(pair, price, volume)
 
-        # check if we should stop (signal received)
-        if stop.is_set():
+                # check if we should stop (signal received)
+                if stop.is_set():
+                    break
+
+            # async for completed cleanly (stream closed). If this was a simulated run
+            # with a bounded max_ticks, exit; otherwise try to reconnect after a short delay.
+            if simulate and max_ticks:
+                break
+            # reset backoff on successful run
+            backoff = 1.0
+            print("Stream closed; attempting to reconnect in 1s...")
+            await asyncio.sleep(1.0)
+            continue
+        except asyncio.CancelledError:
             break
+        except Exception as e:
+            # Log and backoff then recreate the stream
+            print("Stream error:", repr(e))
+            await asyncio.sleep(backoff)
+            backoff = min(max_backoff, backoff * 2)
+            continue
 
     # main loop has exited: persist state and shut down HTTP API if running
     try:

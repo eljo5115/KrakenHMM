@@ -6,3 +6,240 @@ Model is not converging.  Current: -913.534666295752 is not greater than -909.20
 Seeding complete. Fitting models...
 Model is not converging.  Current: -1333.5184128222684 is not greater than -1333.5162852299593. Delta is -0.0021275923090797733
 Models saved to models
+Seeding history from REST for past 365 days...
+Model is not converging.  Current: -251.2234998651643 is not greater than -251.2180573603138. Delta is -0.005442504850520891
+Model is not converging.  Current: -556.0498505090943 is not greater than -556.0403284718507. Delta is -0.009522037243641535
+Model is not converging.  Current: -1424.1152549488472 is not greater than -1417.071794747995. Delta is -7.043460200852223
+Model is not converging.  Current: -913.2546465388614 is not greater than -887.2854610160633. Delta is -25.969185522798057
+Model is not converging.  Current: -1084.553818009491 is not greater than -1083.890457547273. Delta is -0.6633604622179519
+Seeding complete. Fitting models...
+Model is not converging.  Current: -1333.5231282502227 is not greater than -1333.5209315701275. Delta is -0.0021966800952668564
+Models saved to models
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Seeding history from REST for past 365 days...
+Model is not converging.  Current: -556.1734699828431 is not greater than -556.1721900462171. Delta is -0.001279936626019662
+Model is not converging.  Current: -1424.3205640387898 is not greater than -1399.2570803803737. Delta is -25.06348365841609
+Model is not converging.  Current: -887.7085114200856 is not greater than -887.1362406984689. Delta is -0.5722707216167464
+Seeding complete. Fitting models...
+Model is not converging.  Current: -1333.5687834940074 is not greater than -1333.568468493386. Delta is -0.0003150006214127643
+Models saved to models
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Daily retrain: fetching latest yearly data and refitting models...
+Model is not converging.  Current: -1033.3458429358752 is not greater than -1033.0758491706572. Delta is -0.2699937652180324
+Model is not converging.  Current: -1295.5701441843678 is not greater than -1295.566918070639. Delta is -0.003226113728715063
+Model is not converging.  Current: -913.37330006595 is not greater than -905.3123940137903. Delta is -8.060906052159794
+Daily retrain complete.
+Stream closed; attempting to reconnect in 1s...
+Closing position SOL/USD at 225.65 due to stop
+Closing position ALGO/USD at 0.22157 due to stop
+Closing position FIL/USD at 2.289 due to stop
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Seeding history from REST for past 365 days...
+Model is not converging.  Current: -735.1246442238045 is not greater than -735.1227104269611. Delta is -0.0019337968433319475
+Model is not converging.  Current: -913.7270210495109 is not greater than -887.6601145231319. Delta is -26.066906526378943
+Model is not converging.  Current: -1083.1718005294945 is not greater than -1083.1716373220893. Delta is -0.00016320740519404353
+Seeding complete. Fitting models...
+Model is not converging.  Current: -2896.1475208958254 is not greater than -2896.1457098617484. Delta is -0.001811034077036311
+Models saved to models
+Daily retrain: fetching latest yearly data and refitting models...
+Model is not converging.  Current: -253.57861894929533 is not greater than -253.5714310579704. Delta is -0.007187891324946349
+Model is not converging.  Current: -1397.6641583167211 is not greater than -1397.6502606457425. Delta is -0.013897670978622045
+Model is not converging.  Current: -1078.3123776213529 is not greater than -1077.4100547413616. Delta is -0.9023228799912886
+Daily retrain complete.
+Closing position DOT/USD at 4.0901 due to stop
+Stream closed; attempting to reconnect in 1s...
+Closing position XMR/USD at 327.74 due to take
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Seeding history from REST for past 365 days...
+Model is not converging.  Current: 400.7184672325107 is not greater than 407.03045639064766. Delta is -6.311989158136953
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Model is not converging.  Current: 314.59708346188705 is not greater than 320.1635381735145. Delta is -5.566454711627443
+Model is not converging.  Current: 229.93568110660445 is not greater than 230.41091852979966. Delta is -0.47523742319521034
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Model is not converging.  Current: 254.85375188770294 is not greater than 273.8023212515936. Delta is -18.94856936389064
+Seeding complete. Fitting models...
+Model is not converging.  Current: -6022.433610026163 is not greater than -5990.183748767817. Delta is -32.249861258345845
+Model is not converging.  Current: -5005.27446181967 is not greater than -5005.268150269916. Delta is -0.006311549754173029
+Model is not converging.  Current: -6209.254313387986 is not greater than -6209.254080097325. Delta is -0.00023329066152655287
+Model is not converging.  Current: -5236.014226028859 is not greater than -5217.686759507913. Delta is -18.327466520946473
+Models saved to models
+Daily retrain: fetching latest yearly data and refitting models...
+Model is not converging.  Current: -6026.118791055408 is not greater than -5987.826054503942. Delta is -38.29273655146608
+Model is not converging.  Current: 294.8293414221312 is not greater than 294.834830765011. Delta is -0.005489342879798187
+Model is not converging.  Current: 231.36867254276584 is not greater than 257.5211479384767. Delta is -26.152475395710866
+Model is not converging.  Current: -6203.1166808838425 is not greater than -6203.116447593188. Delta is -0.00023329065425059525
+Model is not converging.  Current: -5121.706538383442 is not greater than -5121.706315583461. Delta is -0.0002227999812021153
+Model is not converging.  Current: -5193.308827301894 is not greater than -5175.727743440263. Delta is -17.58108386163076
+Daily retrain failed: 'diag' covars must have shape (n_components, n_dim)
+Stream closed; attempting to reconnect in 1s...
+Closing position ALGO/USD at 0.21277 due to stop
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Closing position LTC/USD at 125.12 due to take
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Daily retrain: fetching latest yearly data and refitting models...
+Some rows of transmat_ have zero sum because no transition from the state was ever observed.
+Model is not converging.  Current: -6008.864746607038 is not greater than -5976.3886338355815. Delta is -32.47611277145643
+Model is not converging.  Current: -6366.503996825138 is not greater than -6366.4951038247555. Delta is -0.008893000382158789
+Model is not converging.  Current: -4989.950146990791 is not greater than -4989.898388403961. Delta is -0.05175858683014667
+Model is not converging.  Current: 230.21658021237542 is not greater than 239.88573133766963. Delta is -9.669151125294206
+Model is not converging.  Current: -6195.65780721905 is not greater than -6195.657573928389. Delta is -0.00023329066061705817
+Model is not converging.  Current: 286.0846068422213 is not greater than 286.08639346161715. Delta is -0.0017866193958298027
+Model is not converging.  Current: -5210.252592009487 is not greater than -5195.393332882646. Delta is -14.859259126840698
+Model is not converging.  Current: -4509.89576812045 is not greater than -4509.873908221265. Delta is -0.021859899185074028
+Daily retrain complete.
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Closing position XMR/USD at 331.06 due to stop
+Stream closed; attempting to reconnect in 1s...
+Closing position XBT/USD at 117670.0 due to stop
+Closing position DOT/USD at 3.967 due to stop
+Stream closed; attempting to reconnect in 1s...
+Closing position XBT/USD at 113740.6 due to stop
+Closing position XMR/USD at 274.04 due to stop
+Closing position ADA/USD at 0.63411 due to stop
+Closing position ALGO/USD at 0.20825 due to stop
+Closing position ETH/USD at 3881.79 due to stop
+Daily retrain: fetching latest yearly data and refitting models...
+Model is not converging.  Current: -5770.2944658031165 is not greater than -5770.280388223123. Delta is -0.014077579993681866
+Model is not converging.  Current: 300.5365589865183 is not greater than 300.538078790303. Delta is -0.0015198037847312662
+Model is not converging.  Current: 251.09672097223807 is not greater than 251.0970234952176. Delta is -0.00030252297952415574
+Model is not converging.  Current: -6222.3034679825905 is not greater than -6222.301335038444. Delta is -0.002132944146069349
+Model is not converging.  Current: -5467.831984046957 is not greater than -5426.764402706587. Delta is -41.06758134036954
+Model is not converging.  Current: -5839.002624233727 is not greater than -5815.199520809924. Delta is -23.803103423802895
+Model is not converging.  Current: -5062.449470863741 is not greater than -5061.175636271795. Delta is -1.2738345919460698
+Model is not converging.  Current: 239.1231781768981 is not greater than 239.12654671599066. Delta is -0.003368539092548417
+Model is not converging.  Current: -5182.511258680392 is not greater than -5136.952242318577. Delta is -45.55901636181443
+Model is not converging.  Current: 264.2266488945 is not greater than 270.14257699816386. Delta is -5.915928103663873
+Model is not converging.  Current: -4499.184478554632 is not greater than -4499.160085490446. Delta is -0.02439306418546039
+Daily retrain failed: 'diag' covars must have shape (n_components, n_dim)
+Stream closed; attempting to reconnect in 1s...
+Closing position XBT/USD at 111900.0 due to stop
+Closing position BCH/USD at 492.41 due to stop
+Closing position XMR/USD at 295.0 due to stop
+Closing position LTC/USD at 90.82 due to stop
+Daily retrain: fetching latest yearly data and refitting models...
+Model is not converging.  Current: 397.3791671088568 is not greater than 397.3896526132997. Delta is -0.010485504442897309
+Model is not converging.  Current: 301.2055025072392 is not greater than 324.854836181694. Delta is -23.649333674454795
+Model is not converging.  Current: -6229.49312923814 is not greater than -6229.490996294006. Delta is -0.002132944133336423
+Model is not converging.  Current: -6170.663288324144 is not greater than -6162.390795607112. Delta is -8.272492717032037
+Model is not converging.  Current: -5379.707390228672 is not greater than -5375.548508321407. Delta is -4.158881907264913
+Model is not converging.  Current: -5190.713049356338 is not greater than -5147.592783419279. Delta is -43.12026593705923
+Model is not converging.  Current: -4513.103824428726 is not greater than -4513.051122692802. Delta is -0.05270173592361971
+Model is not converging.  Current: 219.59700761862027 is not greater than 219.60703260514634. Delta is -0.010024986526076418
+Model is not converging.  Current: 197.6402459538362 is not greater than 197.64393238908104. Delta is -0.003686435244844688
+Daily retrain failed: 'diag' covars must have shape (n_components, n_dim)
+Closing position LTC/USD at 95.7 due to take
+Closing position XMR/USD at 311.88 due to take
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Stream closed; attempting to reconnect in 1s...
+Seeding history from REST for past 365 days...
+Model is not converging.  Current: 396.4094096247605 is not greater than 396.4142135398103. Delta is -0.004803915049819807
+Model is not converging.  Current: 254.77281079727052 is not greater than 279.473768675027. Delta is -24.70095787775645
+Model is not converging.  Current: 226.79142288293917 is not greater than 226.80153054373068. Delta is -0.010107660791504713
+Seeding complete. Fitting models...
+Model is not converging.  Current: -5353.975972203182 is not greater than -5332.001023712549. Delta is -21.974948490633324
+Model is not converging.  Current: -5200.660633891501 is not greater than -5183.2332900475485. Delta is -17.427343843952258
+Model is not converging.  Current: -4505.647281523162 is not greater than -4505.573376665408. Delta is -0.07390485775340494
+Models saved to models
+Live sell attempt 1 failed for FIL/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 60s
+Live sell attempt 1 failed for LINK/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 60s
+Live sell attempt 2 failed for LINK/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 120s
+Live sell attempt 2 failed for FIL/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 120s
+Live sell attempt 3 failed for LINK/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 240s
+Live sell attempt 3 failed for FIL/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 240s
+Live sell attempt 4 failed for LINK/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 480s
+Live sell attempt 4 failed for FIL/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 480s
+Live sell attempt 5 failed for LINK/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 960s
+Live sell attempt 5 failed for FIL/USD: Kraken API error: ['EOrder:Insufficient funds']. Next try in 960s
