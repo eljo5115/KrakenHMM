@@ -68,8 +68,19 @@ class Trader:
         self._last_written_line = None
         # track pending sell attempts: pair -> {'attempts': int, 'next_try_ts': float}
         self._sell_attempts = {}
+        # record last exit info to avoid immediate re-entry: pair -> {'ts': float, 'price': float, 'reason': str}
+        self._last_exits = {}
         # persistent state file to survive restarts (positions, allocation snapshot, last allocation date)
         self.state_file = os.path.join("state", "trader_state.json")
+        # optional set of pairs the trader is allowed to manage (if None, all pairs are allowed)
+        # example: {'LINK/USD', 'FIL/USD'}
+        self.managed_pairs = None
+        # re-entry controls (prevent immediate re-buy after a sell)
+        # cooldown in seconds before re-entry allowed
+        self.reentry_cooldown_seconds = 60 * 60  # 1 hour by default
+        # minimum relative price move (fraction) from exit price required to allow re-entry
+        # e.g., 0.0025 = 0.25% price change
+        self.reentry_price_delta = 0.0025
 
     def add_price(self, pair: str, price: float, volume: Optional[float] = None, ts: Optional[float] = None):
         if price is None:
@@ -123,6 +134,11 @@ class Trader:
             self.ensure_model(pair)
             vols = self.volumes.get(pair)
             self.models[pair].fit(self.prices[pair][-self.min_history :], volumes=(vols[-self.min_history :] if vols else None), sma_window=min(10, self.recent_window))
+            try:
+                # emit a short per-pair decision/debug line after train
+                self.log_hmm_decision(pair)
+            except Exception:
+                pass
         except Exception:
             # if fit fails, keep history for later attempts
             pass
@@ -140,9 +156,96 @@ class Trader:
         try:
             vols = self.volumes.get(pair)
             self.models[pair].fit(prices[-self.min_history:], volumes=(vols[-self.min_history:] if vols is not None else None), sma_window=min(10, self.recent_window))
+            try:
+                # log a concise decision line for debugging/ops
+                self.log_hmm_decision(pair)
+            except Exception:
+                pass
             return True
         except Exception:
             return False
+
+    def log_hmm_decision(self, pair: str):
+        """Write a short CSV line describing the HMM decision for `pair`.
+
+        Emits rows to `logs/hmm_decisions.csv` (append). Columns:
+        ts (unix), pair, state, score, mean, std, history_len, n_components
+        """
+        try:
+            model = self.models.get(pair)
+            prices = self.prices.get(pair, [])
+            if model is None or not prices:
+                return
+            # try to compute recent state
+            recent = prices[-self.recent_window :]
+            recent_vols = None
+            vols = self.volumes.get(pair)
+            if vols is not None and len(vols) >= len(recent):
+                recent_vols = vols[-len(recent) :]
+            
+                state = None
+                try:
+                    state = model.predict_state(recent, recent_volumes=recent_vols)
+                except Exception:
+                    state = None
+                means, stds = model.state_stats()
+                n_comp = getattr(model, 'n_components_used', None) or getattr(model, 'n_components', None) or 0
+                hist_len = len(prices)
+                if state is None or state >= len(means):
+                    mean = 0.0
+                    std = 0.0
+                    score = 0.0
+                else:
+                    mean = float(means[state])
+                    std = float(stds[state]) if float(stds[state]) != 0 else 1e-8
+                    score = mean / max(std, 1e-12)
+                # ensure logs dir exists
+                ld = os.path.abspath(self.trade_log_dir or "logs")
+                os.makedirs(ld, exist_ok=True)
+                out = os.path.join(ld, "hmm_decisions.csv")
+                # compute Trader-level sharpe when available (may use fallback estimator)
+                try:
+                    sharpe_val = self.compute_sharpe_for_pair(pair)
+                except Exception:
+                    sharpe_val = None
+
+                header = "ts,pair,state,score,mean,std,history_len,n_components,sharpe\n"
+                sharpe_s = f"{sharpe_val:.8e}" if (sharpe_val is not None) else ""
+                line = f"{int(time.time())},{pair},{state if state is not None else ''},{score:.8e},{mean:.8e},{std:.8e},{hist_len},{n_comp},{sharpe_s}\n"
+
+                # write into a daily file (UTC date) so decisions are grouped per day
+                date = datetime.datetime.utcnow().strftime('%Y%m%d')
+                out = os.path.join(ld, f"hmm_decisions-{date}.csv")
+
+                # if file exists but header lacks 'sharpe', upgrade it by copying existing lines and appending an empty sharpe column
+                if os.path.exists(out):
+                    try:
+                        with open(out, 'r') as fr:
+                            first = fr.readline()
+                            rest = fr.read()
+                        if 'sharpe' not in first.lower():
+                            tmp = out + '.tmp'
+                            with open(tmp, 'w') as fw:
+                                fw.write(header)
+                                # copy existing data lines, append empty field
+                                for ln in rest.splitlines():
+                                    if not ln.strip():
+                                        continue
+                                    fw.write(ln.rstrip('\n') + ',\n')
+                            os.replace(tmp, out)
+                    except Exception:
+                        # if upgrade fails, continue and append; best-effort
+                        pass
+
+                # append new line (file now has header with 'sharpe' or we'll still append)
+                with open(out, 'a') as f:
+                    # if file was newly created, write header first
+                    if os.path.getsize(out) == 0:
+                        f.write(header)
+                    f.write(line)
+        except Exception:
+            # best-effort only
+            return
 
     def compute_sharpe_for_pair(self, pair: str) -> Optional[float]:
         """Return a Sharpe-like score for the pair.
@@ -208,6 +311,14 @@ class Trader:
         Returns dict pair->allocation (capital amount).
         """
         top = self.rank_assets()
+        if not top:
+            return {}
+        # if managed_pairs is set, filter to only managed pairs
+        if self.managed_pairs:
+            top = [p for p in top if p in self.managed_pairs]
+        # if managed_pairs is set, filter to only managed pairs
+        if self.managed_pairs:
+            top = [p for p in top if p in self.managed_pairs]
         if not top:
             return {}
         per = self.total_capital / len(top)
@@ -454,12 +565,53 @@ class Trader:
             # desired allocations that are not currently held
             missing = {p: cap for p, cap in allocs.items() if p not in self.positions}
 
+            # filter missing to exclude recently-exited pairs that should not be re-entered yet
+            def _allow_reentry(pair: str, cur_price: Optional[float]) -> bool:
+                info = self._last_exits.get(pair)
+                if info is None:
+                    return True
+                try:
+                    last_ts = float(info.get('ts', 0.0))
+                    last_price = float(info.get('price', 0.0))
+                except Exception:
+                    return True
+                now = time.time()
+                # if still in cooldown period, block re-entry
+                if now - last_ts < float(self.reentry_cooldown_seconds):
+                    return False
+                # if no current price available, allow reentry after cooldown
+                if cur_price is None:
+                    return True
+                try:
+                    # require price to have moved away from last exit price by at least reentry_price_delta
+                    if last_price > 0:
+                        rel = abs(float(cur_price) - last_price) / float(last_price)
+                        if rel < float(self.reentry_price_delta):
+                            return False
+                except Exception:
+                    return True
+                return True
+
+            # build allowed_missing by checking current price and last exit info
+            allowed_missing = {}
+            for p, cap in missing.items():
+                curp = None
+                try:
+                    curp = self.prices.get(p, [])[-1]
+                except Exception:
+                    curp = None
+                if _allow_reentry(p, curp):
+                    allowed_missing[p] = cap
+                else:
+                    # skip re-entry for this pair for now
+                    pass
+
             # First allocation of the day: apply entire allocation set once
             if self._last_allocation_date != utc_day:
-                # if the desired allocation set differs from last desired, execute missing
+                # if the desired allocation set differs from last desired, execute allowed_missing
                 if allocs != self._last_desired_allocs:
-                    if missing:
-                        executed = await self.execute_allocations(missing)
+                    if allowed_missing:
+                        executed = await self.execute_allocations(allowed_missing)
                     else:
                         executed = {}
                     # persist snapshots: what we wanted vs what actually executed
@@ -473,18 +625,20 @@ class Trader:
                         self._last_desired_allocs = allocs
                 self._last_allocation_date = utc_day
             else:
-                # same UTC day: allow re-entry for any desired pair we don't hold
-                if missing:
-                    executed = await self.execute_allocations(missing)
-                    # after re-entry, update snapshots
-                    try:
-                        self._last_executed_allocs = dict(executed)
-                    except Exception:
-                        self._last_executed_allocs = executed
-                    try:
-                        self._last_desired_allocs = dict(allocs)
-                    except Exception:
-                        self._last_desired_allocs = allocs
+                # same UTC day: allow re-entry for any desired pair we don't hold but still respect allowed_missing
+                if allowed_missing:
+                    executed = await self.execute_allocations(allowed_missing)
+                else:
+                    executed = {}
+                # after re-entry, update snapshots
+                try:
+                    self._last_executed_allocs = dict(executed)
+                except Exception:
+                    self._last_executed_allocs = executed
+                try:
+                    self._last_desired_allocs = dict(allocs)
+                except Exception:
+                    self._last_desired_allocs = allocs
 
         # Check open positions for stop-loss / take-profit triggers for this pair
         pos = self.positions.get(pair)
@@ -518,18 +672,99 @@ class Trader:
                         result = await place_market_order(pair, qty, side="sell", api_key=self.api_key, api_secret=self.api_secret)
                         sold = True
                     except Exception as e:
-                        # on failure, increment attempts and schedule next try (exponential backoff)
-                        attempt_count = attempt.get("attempts", 0) + 1
-                        # backoff: min 60s, exponential growth (2^attempt) capped at 3600s
-                        backoff = min(3600, 60 * (2 ** (attempt_count - 1)))
-                        next_try = now_ts + backoff
-                        self._sell_attempts[pair] = {"attempts": attempt_count, "next_try_ts": next_try}
-                        print(f"Live sell attempt {attempt_count} failed for {pair}: {e}. Next try in {backoff}s")
-                        # persist attempt info
+                        errmsg = str(e).lower()
+                        # If the failure looks like insufficient funds, reconcile only this pair and retry once
+                        retried = False
+                        if "insuff" in errmsg or "insufficient" in errmsg:
+                            try:
+                                await self.reconcile_positions(api_key=self.api_key, api_secret=self.api_secret, pairs=[pair])
+                                # after reconciliation, re-read the adjusted position quantity
+                                pos_after = self.positions.get(pair)
+                                if pos_after is not None:
+                                    qty_after = pos_after.qty
+                                    # only retry if qty_after > 0
+                                    if qty_after and float(qty_after) > 0:
+                                        try:
+                                            result = await place_market_order(pair, float(qty_after), side="sell", api_key=self.api_key, api_secret=self.api_secret)
+                                            sold = True
+                                            retried = True
+                                        except Exception as e2:
+                                            # fall through to backoff logic with e2
+                                            e = e2
+                            except Exception:
+                                # reconciliation or retry failed; fall back to backoff logic
+                                pass
+
+                        # on failure (or if not an insufficient-funds error), increment attempts and schedule next try (exponential backoff)
+                        if not sold:
+                            attempt_count = attempt.get("attempts", 0) + 1
+                            # backoff: min 60s, exponential growth (2^attempt) capped at 3600s
+                            backoff = min(3600, 60 * (2 ** (attempt_count - 1)))
+                            next_try = now_ts + backoff
+                            self._sell_attempts[pair] = {"attempts": attempt_count, "next_try_ts": next_try}
+                            if retried:
+                                print(f"Live sell retry failed for {pair}: {e}. Next try in {backoff}s")
+                            else:
+                                print(f"Live sell attempt {attempt_count} failed for {pair}: {e}. Next try in {backoff}s")
+                            # persist attempt info
+                            try:
+                                self.save_state()
+                            except Exception:
+                                pass
+                # If not executing live orders, simulate the sell immediately
+                if not self.execute_orders:
+                    try:
+                        # simulated sell: compute pnl and log
+                        entry = pos.entry_price
+                        pnl = None
+                        pnl_pct = None
+                        try:
+                            if entry is not None:
+                                pnl = float((cur_price - float(entry)) * float(qty))
+                                pnl_pct = float((cur_price / float(entry)) - 1.0)
+                        except Exception:
+                            pnl = None
+                            pnl_pct = None
+                        rec = {
+                            "ts": int(time.time()),
+                            "type": "sell",
+                            "mode": "simulated",
+                            "pair": pair,
+                            "qty": qty,
+                            "price": cur_price,
+                            "entry_price": entry,
+                            "reason": reason,
+                            "pnl": pnl,
+                            "pnl_pct": pnl_pct,
+                        }
+                        try:
+                            self._write_trade(rec)
+                        except Exception:
+                            pass
+                        # record last exit and remove position
+                        try:
+                            self._last_exits[pair] = {'ts': time.time(), 'price': float(cur_price), 'reason': reason}
+                        except Exception:
+                            pass
+                        try:
+                            self._sell_attempts.pop(pair, None)
+                        except Exception:
+                            pass
+                        try:
+                            self._pending_plans.pop(pair, None)
+                        except Exception:
+                            pass
+                        try:
+                            self.positions.pop(pair, None)
+                        except Exception:
+                            pass
                         try:
                             self.save_state()
                         except Exception:
                             pass
+                        sold = True
+                    except Exception:
+                        sold = False
 
                 if sold:
                     # successful live sell: log and remove position
@@ -560,6 +795,11 @@ class Trader:
                     }
                     try:
                         self._write_trade(rec)
+                    except Exception:
+                        pass
+                    # record last exit info to prevent immediate re-entry
+                    try:
+                        self._last_exits[pair] = {'ts': time.time(), 'price': float(cur_price), 'reason': reason}
                     except Exception:
                         pass
                     # clear any pending attempt record
@@ -627,6 +867,7 @@ class Trader:
             'last_executed_allocs': self._last_executed_allocs,
             'last_allocation_date': self._last_allocation_date,
             'sell_attempts': self._sell_attempts,
+            'last_exits': self._last_exits,
         }
         with open(tmp, 'w') as f:
             json.dump(state, f)
@@ -647,6 +888,7 @@ class Trader:
             self._last_executed_allocs = state.get('last_executed_allocs')
             self._last_allocation_date = state.get('last_allocation_date')
             self._sell_attempts = state.get('sell_attempts', {})
+            self._last_exits = state.get('last_exits', {})
         except Exception:
             # ignore load errors and continue with empty state
             return
@@ -686,6 +928,101 @@ class Trader:
             except Exception:
                 # ignore single-file errors
                 continue
+    async def reconcile_positions(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, pairs: Optional[list] = None):
+        """Reconcile locally stored positions with exchange balances.
+
+        This queries exchange balances and for each stored `pair` will attempt
+        to find the corresponding asset code in the exchange balances. If the
+        exchange reports less quantity than we have recorded locally, the
+        local `Position.qty` will be reduced to the exchange amount to avoid
+        failed sell attempts due to 'insufficient funds'. Any change is
+        logged as a reconciliation record and persisted via `save_state`.
+
+        Pair to balance mapping is heuristic: for pair like 'LINK/USD' we
+        look for balance key 'LINK' or a lowercase variant. If no matching
+        balance is found, the position is left untouched.
+        """
+        # best-effort: only run when API creds are available
+        if not api_key or not api_secret:
+            return
+        try:
+            from .api import get_balances
+
+            balances = await get_balances(api_key, api_secret)
+        except Exception as e:
+            # can't fetch balances; skip reconciliation
+            print(f"Balance reconciliation skipped: {e}")
+            return
+
+        changed = False
+        # iterate only requested pairs when given, otherwise all stored positions
+        iter_items = list(self.positions.items()) if pairs is None else [(p, self.positions.get(p)) for p in pairs if p in self.positions]
+        for pair, pos in iter_items:
+            if pos is None:
+                continue
+            # extract asset symbol before '/'
+            asset = pair.split('/')[0]
+            # Kraken balances use asset codes (sometimes prefixed like XBT)
+            candidates = [asset, asset.upper(), asset.lower()]
+            # also try replacing common XBT/BTC synonyms
+            if asset.upper() == 'XBT':
+                candidates.append('BTC')
+            if asset.upper() == 'BTC':
+                candidates.append('XBT')
+
+            found_balance = None
+            for c in candidates:
+                if c in balances:
+                    found_balance = balances[c]
+                    break
+            if found_balance is None:
+                # try fuzzy: check balances keys that endwith asset code
+                for k in balances.keys():
+                    if k.upper().endswith(asset.upper()):
+                        try:
+                            found_balance = float(balances[k])
+                            break
+                        except Exception:
+                            continue
+
+            if found_balance is None:
+                # no balance info for this asset; skip
+                continue
+
+            # if exchange reports less than local recorded qty (allow tiny epsilon), reduce local qty
+            try:
+                exch_qty = float(found_balance)
+            except Exception:
+                continue
+            # allow small rounding epsilon (e.g., 1e-8)
+            if exch_qty + 1e-8 < float(pos.qty):
+                old_qty = pos.qty
+                print(f"Reconciling position {pair}: local qty={old_qty} -> exchange qty={exch_qty}")
+                # log reconciliation as a special record in trade log
+                rec = {
+                    "ts": int(time.time()),
+                    "type": "reconcile",
+                    "pair": pair,
+                    "old_qty": old_qty,
+                    "new_qty": exch_qty,
+                    "note": "Adjusted local position to match exchange balances (partial/filled orders)",
+                }
+                try:
+                    self._write_trade(rec)
+                except Exception:
+                    pass
+                # update local position qty; keep entry_price/thresholds unchanged
+                try:
+                    self.positions[pair].qty = exch_qty
+                except Exception:
+                    self.positions[pair] = Position(pair=pair, qty=exch_qty, entry_price=pos.entry_price, stop_price=pos.stop_price, take_price=pos.take_price)
+                changed = True
+
+        if changed:
+            try:
+                self.save_state()
+            except Exception:
+                pass
     def _get_trade_log_path(self) -> str:
         """Return current trade log path; rotate by UTC day when trade_log_file not set."""
         if self.trade_log_file:

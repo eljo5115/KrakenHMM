@@ -9,7 +9,7 @@ Group=eli
 WorkingDirectory=/home/eli/KrakenHMM
 # Use an environment file to store secrets and flags (not checked into git)
 EnvironmentFile=/home/eli/KrakenHMM/scripts/trader.env
-ExecStart=/home/eli/KrakenHMM/.venv/bin/python -u /home/eli/KrakenHMM/run_trader.py --http-port 8765 --trade-log-dir /home/eli/KrakenHMM/logs --trade-log-file "" --seed-history --seed-days 365
+ExecStart=/home/eli/KrakenHMM/.venv/bin/python -u /home/eli/KrakenHMM/run_trader.py --http-port 8765 --trade-log-dir /home/eli/KrakenHMM/logs --trade-log-file "" --seed-history --seed-days 365 --n-assets 2 --pairs "XBT/USD,ETH/USD"
 Restart=always
 RestartSec=5
 StandardOutput=append:/home/eli/KrakenHMM/logs/trader.out

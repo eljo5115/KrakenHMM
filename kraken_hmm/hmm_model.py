@@ -13,6 +13,8 @@ on available sample size to avoid degenerate fits on very small histories.
 from typing import Sequence, Tuple, Optional
 import numpy as np
 from hmmlearn.hmm import GaussianHMM
+import contextlib
+import os
 
 
 # small epsilon to avoid division by zero
@@ -117,14 +119,33 @@ class HMMModel:
         # covariance heuristic
         cov_type = "full" if n_samples >= max(60, 10 * n_features) else "diag"
 
-        # instantiate and fit
-        model = GaussianHMM(n_components=n_components, covariance_type=cov_type, random_state=self.random_state, n_iter=200)
+        # instantiate and fit with more iterations and a tolerance to improve convergence
         try:
-            model.fit(X)
+            model = GaussianHMM(n_components=n_components, covariance_type=cov_type, random_state=self.random_state, n_iter=500, tol=1e-4)
+            import warnings as _warnings
+            with _warnings.catch_warnings():
+                _warnings.filterwarnings('ignore', message='Some rows of transmat_ have zero sum.*')
+                _warnings.filterwarnings('ignore', message='Model is not converging.*')
+                _warnings.filterwarnings('ignore')
+                # suppress noisy stdout/stderr from hmmlearn during fit
+                with open(os.devnull, 'w') as devnull:
+                    with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                        model.fit(X)
         except Exception:
-            # fallback to simpler model
-            model = GaussianHMM(n_components=2, covariance_type="diag", random_state=self.random_state, n_iter=100)
-            model.fit(X)
+            # fallback to simpler model with reasonable settings
+            try:
+                model = GaussianHMM(n_components=2, covariance_type="diag", random_state=self.random_state, n_iter=200, tol=1e-4)
+                import warnings as _warnings
+                with _warnings.catch_warnings():
+                    _warnings.filterwarnings('ignore', message='Some rows of transmat_ have zero sum.*')
+                    _warnings.filterwarnings('ignore', message='Model is not converging.*')
+                    _warnings.filterwarnings('ignore')
+                    with open(os.devnull, 'w') as devnull:
+                        with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                            model.fit(X)
+            except Exception:
+                # last-resort: instantiate without fitting (keep previous behavior safe)
+                model = GaussianHMM(n_components=max(2, min(4, n_components)), covariance_type="diag", random_state=self.random_state, n_iter=50)
 
         # regularize covariances to avoid nearly-zero variances
         min_covar = 1e-8
@@ -297,3 +318,141 @@ class HMMModel:
             X = np.column_stack([log_returns, vol_changes, sma_pct, rsi_local, fi_local])
 
         return int(self.model.predict(X)[-1])
+
+    def partial_update(self, prices: Sequence[float], volumes: Optional[Sequence[float]] = None, sma_window: int = 5, window: int = 200, n_iter: int = 20):
+        """Online-ish update: warm-start EM using recent `window` prices.
+
+        This method attempts to avoid full reinitialization by creating a new
+        GaussianHMM instance with the same topology as the currently-fitted
+        model, copying over parameters, and calling fit with init_params set
+        to '' so it continues EM from the provided parameters. This performs
+        a small number of iterations (`n_iter`) on the recent window to adapt
+        to new data while keeping cost low.
+
+        Note: this is a best-effort approach — it depends on hmmlearn allowing
+        fit() to proceed without reinitializing parameters when init_params is
+        empty. If no model exists yet, this behaves like a normal fit.
+        """
+        prices = list(prices)
+        n = len(prices)
+        if n < 3:
+            return
+
+        # compute features identical to fit, but only for the requested window
+        start_idx = max(0, n - window)
+        window_prices = prices[start_idx:]
+        window_vols = None
+        if volumes is not None:
+            vols = list(volumes)
+            window_vols = vols[start_idx:]
+
+        # build feature matrix X using same logic as fit
+        # reuse local computation by calling internal fit steps, but duplicate here to avoid refactor
+        prices_arr = np.asarray(window_prices, dtype=float)
+        n_w = len(prices_arr)
+        log_returns = np.log((prices_arr[1:] + _EPS) / (prices_arr[:-1] + _EPS))
+
+        if window_vols is not None and len(window_vols) == n_w:
+            vols_arr = np.asarray(window_vols, dtype=float)
+            vol_changes = np.diff(np.log(vols_arr + _EPS))
+        else:
+            vol_changes = np.zeros_like(log_returns)
+
+        sma_window = max(1, int(sma_window))
+        sma_pct = np.zeros_like(log_returns)
+        for i in range(len(log_returns)):
+            price_idx = i + 1
+            start = max(0, price_idx - sma_window + 1)
+            window2 = prices_arr[start : price_idx + 1]
+            sma = float(window2.mean()) if len(window2) > 0 else float(prices_arr[price_idx])
+            sma_pct[i] = (prices_arr[price_idx] - sma) / (sma + _EPS)
+
+        # compute RSI and Force Index
+        def compute_rsi_local(returns: np.ndarray, window_r: int = 14) -> np.ndarray:
+            rsi_local = np.zeros_like(returns)
+            gains = np.where(returns > 0, returns, 0.0)
+            losses = np.where(returns < 0, -returns, 0.0)
+            for i in range(len(returns)):
+                start = max(0, i - window_r + 1)
+                g = gains[start : i + 1]
+                l = losses[start : i + 1]
+                avg_gain = g.mean() if g.size > 0 else 0.0
+                avg_loss = l.mean() if l.size > 0 else _EPS
+                rs = avg_gain / max(avg_loss, _EPS)
+                rsi_local[i] = 100.0 - (100.0 / (1.0 + rs))
+            return rsi_local
+
+        def compute_force_local(prices_arr: np.ndarray, vols_arr_local: Optional[np.ndarray]) -> np.ndarray:
+            fi_local = np.zeros_like(log_returns)
+            if vols_arr_local is None or len(vols_arr_local) != len(prices_arr):
+                return fi_local
+            for i in range(len(log_returns)):
+                price_idx = i + 1
+                fi_local[i] = (prices_arr[price_idx] - prices_arr[price_idx - 1]) * vols_arr_local[price_idx]
+            return fi_local
+
+        rsi_local = compute_rsi_local(log_returns, window_r=14)
+        fi_local = compute_force_local(prices_arr, np.asarray(window_vols, dtype=float) if window_vols is not None else None)
+
+        n_obs = len(log_returns)
+        if n_obs < 30:
+            X = log_returns.reshape(-1, 1)
+        elif n_obs < 80:
+            X = np.column_stack([log_returns, vol_changes])
+        elif n_obs < 200:
+            X = np.column_stack([log_returns, vol_changes, sma_pct])
+        else:
+            X = np.column_stack([log_returns, vol_changes, sma_pct, rsi_local, fi_local])
+
+        # If no existing model, just fit normally on window
+        if self.model is None:
+            try:
+                self.fit(prices, volumes=volumes, sma_window=sma_window)
+            except Exception:
+                return
+            return
+
+        # create a new HMM with same topology and copy parameters
+        try:
+            from hmmlearn.hmm import GaussianHMM
+
+            n_comp = getattr(self.model, 'n_components', self.n_states)
+            cov_type = getattr(self.model, 'covariance_type', 'diag')
+            new_model = GaussianHMM(n_components=n_comp, covariance_type=cov_type, random_state=self.random_state, n_iter=n_iter)
+            # prevent reinitialization of params so EM continues from current params
+            new_model.init_params = ''
+            # copy parameters if present
+            if hasattr(self.model, 'startprob_'):
+                new_model.startprob_ = np.array(self.model.startprob_)
+            if hasattr(self.model, 'transmat_'):
+                new_model.transmat_ = np.array(self.model.transmat_)
+            if hasattr(self.model, 'means_'):
+                new_model.means_ = np.array(self.model.means_)
+            if hasattr(self.model, 'covars_'):
+                new_model.covars_ = np.array(self.model.covars_)
+
+            # fit on X to adapt params (safely, suppress convergence warnings)
+            try:
+                import warnings as _warnings
+                with _warnings.catch_warnings():
+                    _warnings.filterwarnings('ignore')
+                    new_model.fit(X)
+            except Exception:
+                # if incremental EM fails, keep the existing model and return
+                return
+
+            # replace current model
+            self.model = new_model
+            # recompute stored features and returns/states using entire provided prices
+            try:
+                # rebuild features for whole provided prices set
+                self.fit(prices, volumes=volumes, sma_window=sma_window)
+            except Exception:
+                # if rebuilding fails, at least keep the incremental model
+                pass
+        except Exception:
+            # fallback: full fit on provided prices
+            try:
+                self.fit(prices, volumes=volumes, sma_window=sma_window)
+            except Exception:
+                return

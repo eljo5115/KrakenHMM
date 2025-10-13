@@ -280,3 +280,53 @@ async def query_orders(txids, api_key: str, api_secret: str, timeout: int = 15) 
     if resp_json.get("error"):
         raise Exception(f"Kraken API error: {resp_json.get('error')}")
     return resp_json.get("result", {})
+
+
+async def get_balances(api_key: str, api_secret: str, timeout: int = 15) -> Dict[str, float]:
+    """Query account balances via /0/private/Balance.
+
+    Returns a mapping asset_code -> float(balance). Raises on API errors.
+    """
+    import aiohttp
+    import time
+    import hashlib
+    import hmac
+    import base64
+    import urllib.parse
+
+    if not api_key or not api_secret:
+        raise ValueError("API key and secret are required to query balances")
+
+    url_path = "/0/private/Balance"
+    url = "https://api.kraken.com" + url_path
+
+    nonce = str(int(time.time() * 1000))
+    data = {"nonce": nonce}
+    postdata = urllib.parse.urlencode(data)
+
+    sha256 = hashlib.sha256((nonce + postdata).encode("utf-8")).digest()
+    message = url_path.encode("utf-8") + sha256
+    secret_decoded = base64.b64decode(api_secret)
+    signature = hmac.new(secret_decoded, message, hashlib.sha512)
+    api_sign = base64.b64encode(signature.digest()).decode()
+
+    headers = {
+        "API-Key": api_key,
+        "API-Sign": api_sign,
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, data=postdata, headers=headers, timeout=timeout) as resp:
+            resp_json = await resp.json()
+    if resp_json.get("error"):
+        raise Exception(f"Kraken API error: {resp_json.get('error')}")
+    result = resp_json.get("result", {})
+    out: Dict[str, float] = {}
+    for k, v in result.items():
+        try:
+            out[k] = float(v)
+        except Exception:
+            # skip non-numeric or unexpected values
+            continue
+    return out

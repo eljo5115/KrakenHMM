@@ -95,6 +95,14 @@ async def main(total_capital: float = 1000.0, n_assets: int = 5, debug: bool = F
     models_dir = getattr(main, "models_dir", "models")
     # track whether we've printed an initial debug snapshot (avoid repeating it every tick)
     initial_debug_printed = False
+
+    # If executing orders live, attempt to reconcile persisted positions with exchange balances
+    if trader.execute_orders and trader.api_key and trader.api_secret:
+        try:
+            # run reconciliation once at startup to avoid attempting to sell more than the exchange holds
+            await trader.reconcile_positions(api_key=trader.api_key, api_secret=trader.api_secret)
+        except Exception as e:
+            print(f"Position reconciliation failed at startup: {e}")
     if seed_history:
         try:
             from kraken_hmm.api import fetch_daily_close_volume
@@ -114,6 +122,10 @@ async def main(total_capital: float = 1000.0, n_assets: int = 5, debug: bool = F
                     trader.ensure_model(p)
                     vols = trader.volumes.get(p)
                     trader.models[p].fit(trader.prices[p][-seed_days:], volumes=(vols[-seed_days:] if vols else None), sma_window=min(10, trader.recent_window))
+                    try:
+                        trader.log_hmm_decision(p)
+                    except Exception:
+                        pass
                 except Exception:
                     trader.models.pop(p, None)
             # persist fitted models
@@ -183,6 +195,10 @@ async def main(total_capital: float = 1000.0, n_assets: int = 5, debug: bool = F
                             trader.ensure_model(p)
                             vols = trader.volumes.get(p)
                             trader.models[p].fit(trader.prices[p][-seed_days:], volumes=(vols[-seed_days:] if vols else None), sma_window=min(10, trader.recent_window))
+                            try:
+                                trader.log_hmm_decision(p)
+                            except Exception:
+                                pass
                     trader.save_models(models_dir=models_dir)
                     print("Daily retrain complete.")
                 except Exception as e:
@@ -483,8 +499,25 @@ if __name__ == "__main__":
     parser.add_argument("--enable-api", action="store_true", help="Start a small HTTP API for health/positions")
     parser.add_argument("--http-port", type=int, default=8080, help="Port for HTTP API")
     parser.add_argument("--state-file", type=str, default="state/trader_state.json", help="Path to trader state file")
+    parser.add_argument("--pairs", type=str, default=None, help="Comma-separated list of pairs to trade (overrides built-in PAIRS)")
 
     args = parser.parse_args()
+    # Allow overriding the built-in PAIRS from CLI or environment (comma-separated)
+    if args.pairs:
+        try:
+            PAIRS = [p.strip() for p in args.pairs.split(",") if p.strip()]
+        except Exception:
+            PAIRS = PAIRS
+    else:
+        # fallback to environment variable PAIRS (comma-separated)
+        import os
+
+        env_pairs = os.environ.get("PAIRS")
+        if env_pairs:
+            try:
+                PAIRS = [p.strip() for p in env_pairs.split(",") if p.strip()]
+            except Exception:
+                PAIRS = PAIRS
     # attach flag to main so it can be picked up inside (avoids changing signature)
     setattr(main, "use_rest", args.use_rest)
     setattr(main, "seed_history", args.seed_history)
