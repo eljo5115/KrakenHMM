@@ -589,6 +589,11 @@ class Trader:
                 # if no current price available, allow reentry after cooldown
                 if cur_price is None:
                     return True
+                    # DEBUG: log incoming tick and quick state snapshot
+                    try:
+                        print(f"[DEBUG on_tick] ts={int(time.time())} pair={pair} price={price} volume={volume} positions={list(self.positions.keys())} last_alloc_date={self._last_allocation_date}")
+                    except Exception:
+                        pass
                 try:
                     # require price to have moved away from last exit price by at least reentry_price_delta
                     if last_price > 0:
@@ -648,188 +653,8 @@ class Trader:
                     self._last_desired_allocs = allocs
 
         # Check open positions for stop-loss / take-profit triggers for this pair
-        pos = self.positions.get(pair)
-        if pos is not None and pos.qty and pos.entry_price is not None:
-            # evaluate stop / take if defined
-            cur_price = price
-            triggered = False
-            if pos.stop_price is not None and cur_price <= pos.stop_price:
-                triggered = True
-                reason = "stop"
-            elif pos.take_price is not None and cur_price >= pos.take_price:
-                triggered = True
-                reason = "take"
-
-            if triggered:
-                # close the position via market sell
-                qty = pos.qty
-                # ensure we only attempt a live sell when next_try_ts allows
-                now_ts = time.time()
-                attempt = self._sell_attempts.get(pair, {"attempts": 0, "next_try_ts": 0.0})
-                if now_ts < attempt.get("next_try_ts", 0.0):
-                    # not yet time to retry; skip for now
-                    return
-
-                result = None
-                sold = False
-                if self.execute_orders and self.api_key and self.api_secret:
-                    from .api import place_market_order
-
-                    try:
-                        result = await place_market_order(pair, qty, side="sell", api_key=self.api_key, api_secret=self.api_secret)
-                        sold = True
-                    except Exception as e:
-                        errmsg = str(e).lower()
-                        # If the failure looks like insufficient funds, reconcile only this pair and retry once
-                        retried = False
-                        if "insuff" in errmsg or "insufficient" in errmsg:
-                            try:
-                                await self.reconcile_positions(api_key=self.api_key, api_secret=self.api_secret, pairs=[pair])
-                                # after reconciliation, re-read the adjusted position quantity
-                                pos_after = self.positions.get(pair)
-                                if pos_after is not None:
-                                    qty_after = pos_after.qty
-                                    # only retry if qty_after > 0
-                                    if qty_after and float(qty_after) > 0:
-                                        try:
-                                            result = await place_market_order(pair, float(qty_after), side="sell", api_key=self.api_key, api_secret=self.api_secret)
-                                            sold = True
-                                            retried = True
-                                        except Exception as e2:
-                                            # fall through to backoff logic with e2
-                                            e = e2
-                            except Exception:
-                                # reconciliation or retry failed; fall back to backoff logic
-                                pass
-
-                        # on failure (or if not an insufficient-funds error), increment attempts and schedule next try (exponential backoff)
-                        if not sold:
-                            attempt_count = attempt.get("attempts", 0) + 1
-                            # backoff: min 60s, exponential growth (2^attempt) capped at 3600s
-                            backoff = min(3600, 60 * (2 ** (attempt_count - 1)))
-                            next_try = now_ts + backoff
-                            self._sell_attempts[pair] = {"attempts": attempt_count, "next_try_ts": next_try}
-                            if retried:
-                                print(f"Live sell retry failed for {pair}: {e}. Next try in {backoff}s")
-                            else:
-                                print(f"Live sell attempt {attempt_count} failed for {pair}: {e}. Next try in {backoff}s")
-                            # persist attempt info
-                            try:
-                                self.save_state()
-                            except Exception:
-                                pass
-                # If not executing live orders, simulate the sell immediately
-                if not self.execute_orders:
-                    try:
-                        # simulated sell: compute pnl and log
-                        entry = pos.entry_price
-                        pnl = None
-                        pnl_pct = None
-                        try:
-                            if entry is not None:
-                                pnl = float((cur_price - float(entry)) * float(qty))
-                                pnl_pct = float((cur_price / float(entry)) - 1.0)
-                        except Exception:
-                            pnl = None
-                            pnl_pct = None
-                        rec = {
-                            "ts": int(time.time()),
-                            "type": "sell",
-                            "mode": "simulated",
-                            "pair": pair,
-                            "qty": qty,
-                            "price": cur_price,
-                            "entry_price": entry,
-                            "reason": reason,
-                            "pnl": pnl,
-                            "pnl_pct": pnl_pct,
-                        }
-                        try:
-                            self._write_trade(rec)
-                        except Exception:
-                            pass
-                        # record last exit and remove position
-                        try:
-                            self._last_exits[pair] = {'ts': time.time(), 'price': float(cur_price), 'reason': reason}
-                        except Exception:
-                            pass
-                        try:
-                            self._sell_attempts.pop(pair, None)
-                        except Exception:
-                            pass
-                        try:
-                            self._pending_plans.pop(pair, None)
-                        except Exception:
-                            pass
-                        try:
-                            self.positions.pop(pair, None)
-                        except Exception:
-                            pass
-                        try:
-                            self.save_state()
-                        except Exception:
-                            pass
-                        sold = True
-                    except Exception:
-                        sold = False
-
-                if sold:
-                    # successful live sell: log and remove position
-                    mode = "live"
-                    print(f"Closing position {pair} at {cur_price} due to {reason}")
-                    entry = pos.entry_price
-                    pnl = None
-                    pnl_pct = None
-                    try:
-                        if entry is not None:
-                            pnl = float((cur_price - float(entry)) * float(qty))
-                            pnl_pct = float((cur_price / float(entry)) - 1.0)
-                    except Exception:
-                        pnl = None
-                        pnl_pct = None
-                    rec = {
-                        "ts": int(time.time()),
-                        "type": "sell",
-                        "mode": mode,
-                        "pair": pair,
-                        "qty": qty,
-                        "price": cur_price,
-                        "entry_price": entry,
-                        "reason": reason,
-                        "pnl": pnl,
-                        "pnl_pct": pnl_pct,
-                        "result": str(result) if result is not None else None,
-                    }
-                    try:
-                        self._write_trade(rec)
-                    except Exception:
-                        pass
-                    # record last exit info to prevent immediate re-entry
-                    try:
-                        self._last_exits[pair] = {'ts': time.time(), 'price': float(cur_price), 'reason': reason}
-                    except Exception:
-                        pass
-                    # clear any pending attempt record
-                    try:
-                        self._sell_attempts.pop(pair, None)
-                    except Exception:
-                        pass
-                    try:
-                        self._pending_plans.pop(pair, None)
-                    except Exception:
-                        pass
-                    try:
-                        self.positions.pop(pair, None)
-                    except Exception:
-                        pass
-                    try:
-                        self.save_state()
-                    except Exception:
-                        pass
-                else:
-                    # not sold this tick; keep position and retry later
-                    # (we already recorded attempt and next_try_ts above)
-                    pass
+        # Delegate exit-checks to a helper so it can be invoked independently
+        await self.check_and_execute_exits(pair, price)
 
     def save_models(self, models_dir: str = "models"):
         """Persist fitted models and training metadata to disk.
@@ -916,32 +741,165 @@ class Trader:
         if not os.path.isdir(models_dir):
             return
         for fname in os.listdir(models_dir):
-            if not fname.endswith(".pkl"):
+            if not fname.endswith('.pkl'):
                 continue
             pfile = os.path.join(models_dir, fname)
             safe = fname[:-4]
-            pair = safe.replace("_", "/")
+            pair = safe.replace('_', '/')
             try:
-                with open(pfile, "rb") as f:
+                with open(pfile, 'rb') as f:
                     model = pickle.load(f)
                 self.models[pair] = model
-                # try to load metadata
                 meta_file = os.path.join(models_dir, f"{safe}_meta.json")
                 if os.path.exists(meta_file):
-                    with open(meta_file, "r") as fm:
-                        meta = json.load(fm)
-                    prices_tail = meta.get("prices_tail") or []
-                    vols_tail = meta.get("volumes_tail") or []
-                    times_tail = meta.get("times_tail") or []
-                    if prices_tail:
-                        self.prices[pair] = list(map(float, prices_tail))
-                    if vols_tail:
-                        self.volumes[pair] = list(map(float, vols_tail))
-                    if times_tail:
-                        self.times[pair] = list(map(float, times_tail))
+                    try:
+                        with open(meta_file, 'r') as fm:
+                            meta = json.load(fm)
+                        prices_tail = meta.get('prices_tail') or []
+                        vols_tail = meta.get('volumes_tail') or []
+                        times_tail = meta.get('times_tail') or []
+                        if prices_tail:
+                            self.prices[pair] = list(map(float, prices_tail))
+                        if vols_tail:
+                            self.volumes[pair] = list(map(float, vols_tail))
+                        if times_tail:
+                            self.times[pair] = list(map(float, times_tail))
+                    except Exception:
+                        pass
             except Exception:
                 # ignore single-file errors
                 continue
+
+    async def populate_thresholds_from_models(self, pairs: Optional[list] = None, models_dir: str = "models"):
+        """Populate missing stop_price / take_price for positions using trained HMM models.
+
+        For each position (or the provided `pairs`), if stop_price or take_price is
+        None and a trained model is available (either already in memory or on
+        disk under `models_dir`), compute a sensible stop/take using the model's
+        per-state standard deviation. If the position has an `entry_price` use
+        that as the base for thresholds; otherwise fall back to the most recent
+        known price for the pair (from `self.prices`) or the model metadata if
+        present.
+
+        This method writes a small trade-log record for each updated pair and
+        persists state if any changes are made.
+        """
+        changed = False
+        # ensure models loaded from disk if none are present
+        if not self.models:
+            try:
+                self.load_models(models_dir=models_dir)
+            except Exception:
+                pass
+
+        # determine target pairs
+        if pairs is None:
+            target_pairs = list(self.positions.keys())
+        else:
+            target_pairs = list(pairs)
+
+        for pair in target_pairs:
+            pos = self.positions.get(pair)
+            # if we don't have a local position, we still may want to set thresholds
+            if pos is None:
+                # create a placeholder position only if exchange held qty exists
+                continue
+
+            # skip if both thresholds already set
+            if pos.stop_price is not None and pos.take_price is not None:
+                continue
+
+            model = self.models.get(pair)
+            if model is None:
+                # no loaded model for this pair; skip
+                continue
+
+            # determine base price: prefer entry_price, fall back to last known price
+            base_price = None
+            if pos.entry_price is not None:
+                try:
+                    base_price = float(pos.entry_price)
+                except Exception:
+                    base_price = None
+            if base_price is None:
+                last_prices = self.prices.get(pair, [])
+                if last_prices:
+                    try:
+                        base_price = float(last_prices[-1])
+                    except Exception:
+                        base_price = None
+
+            if base_price is None:
+                # unable to determine base price; skip
+                print(f"populate_thresholds: skipping {pair} (no base price)")
+                continue
+
+            # compute state and stats
+            s = None
+            try:
+                # try to predict recent state using recent_window prices/volumes
+                recent = self.prices.get(pair, [])[-self.recent_window :]
+                recent_vols = None
+                vols = self.volumes.get(pair)
+                if vols is not None and len(vols) >= len(recent):
+                    recent_vols = vols[-len(recent) :]
+                try:
+                    state = model.predict_state(recent, recent_volumes=recent_vols)
+                except Exception:
+                    state = None
+                means, stds = model.state_stats()
+                if state is not None and state < len(stds):
+                    s = float(stds[state])
+                else:
+                    # fallback to mean/std across states
+                    if len(stds) > 0:
+                        s = float(max(1e-8, float(np.mean(stds))))
+            except Exception:
+                s = None
+
+            if s is None or not math.isfinite(s) or s <= 0:
+                s = 1e-8
+
+            # compute thresholds relative to base_price
+            stop_price = base_price * (1.0 - s)
+            take_price = base_price * (1.0 + 2.0 * s)
+
+            # apply only missing values to avoid overwriting manual thresholds
+            applied = False
+            if pos.stop_price is None:
+                try:
+                    pos.stop_price = float(stop_price)
+                    applied = True
+                except Exception:
+                    pass
+            if pos.take_price is None:
+                try:
+                    pos.take_price = float(take_price)
+                    applied = True
+                except Exception:
+                    pass
+
+            if applied:
+                changed = True
+                rec = {
+                    "ts": int(time.time()),
+                    "type": "set_thresholds",
+                    "pair": pair,
+                    "base_price": base_price,
+                    "stop_price": pos.stop_price,
+                    "take_price": pos.take_price,
+                    "method": "model_state",
+                }
+                try:
+                    self._write_trade(rec)
+                except Exception:
+                    pass
+
+        if changed:
+            try:
+                self.save_state()
+            except Exception:
+                pass
     async def reconcile_positions(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, pairs: Optional[list] = None):
         """Reconcile locally stored positions with exchange balances.
 
@@ -970,10 +928,19 @@ class Trader:
 
         changed = False
         # iterate only requested pairs when given, otherwise all stored positions
-        iter_items = list(self.positions.items()) if pairs is None else [(p, self.positions.get(p)) for p in pairs if p in self.positions]
+        # If `pairs` is provided, include those pairs even if not currently present in self.positions
+        if pairs is None:
+            iter_items = list(self.positions.items())
+        else:
+            iter_items = [(p, self.positions.get(p)) for p in pairs]
         for pair, pos in iter_items:
+            # pos may be None when pairs were provided but not present in state; we still want
+            # to attempt reconciliation (we may create a new local position if exchange reports qty)
+            # Keep a local old_qty for logging
             if pos is None:
-                continue
+                old_qty = 0.0
+            else:
+                old_qty = float(pos.qty)
             # extract asset symbol before '/'
             asset = pair.split('/')[0]
             # Kraken balances use asset codes (sometimes prefixed like XBT)
@@ -987,17 +954,15 @@ class Trader:
             # Aggregate matching balances across Kraken keys that refer to this asset.
             # Prefer keys that end with '.F' (free for trading). If any '.F' keys exist for the
             # asset, sum those and use that total. Otherwise, sum all positive matching balances
-            # (stripping leading X/Z and suffixes) as a fallback.
-            total_f = 0.0
-            total_other = 0.0
-            matched_any = False
-            matched_f = False
+            # as a fallback (legacy heuristic).
+            free_matches = []
+            other_matches = []
             for k, v in balances.items():
                 try:
                     kval = k.upper()
-                    # check if this key is a '.F' free key
+                    # consider a key a free balance when it ends with '.F'
                     is_free = kval.endswith('.F')
-                    # base symbol before any dot (preserve prefixes like XXBT)
+                    # base symbol before any dot (handles XXBT, XBT etc.)
                     base = kval.split('.', 1)[0]
                     # match when base equals asset or base endswith asset (handles XXBT -> XBT)
                     if base == asset.upper() or base.endswith(asset.upper()):
@@ -1005,25 +970,29 @@ class Trader:
                             fv = float(v)
                         except Exception:
                             continue
-                        matched_any = True
                         if is_free:
-                            if fv > 0:
-                                total_f += fv
-                            matched_f = True
+                            free_matches.append(fv)
                         else:
-                            if fv > 0:
-                                total_other += fv
+                            other_matches.append(fv)
                 except Exception:
                     continue
 
-            # If we found .F entries, prefer their total; otherwise fall back to any positive matches.
-            if matched_f:
-                exch_qty = total_f
-            elif matched_any:
-                exch_qty = total_other
+            # Use free ('.F') matches when present (we treat them as authoritative
+            # even if they sum to zero). Otherwise fall back to other matches.
+            authoritative = False
+            if free_matches:
+                exch_qty = sum(free_matches)
+                authoritative = True
+                # debug visibility when using .F balances
+                print(f"Using .F (free) balances for {pair}: total_free={exch_qty}")
+            elif other_matches:
+                exch_qty = sum(x for x in other_matches)
+                # other_matches present -> treat matched keys as authoritative even if zero
+                authoritative = True
             else:
                 # fallback: try endswith matching on original keys (legacy heuristic)
                 exch_qty = 0.0
+                matched_any = False
                 for k, v in balances.items():
                     try:
                         if k.upper().endswith(asset.upper()):
@@ -1036,14 +1005,16 @@ class Trader:
                 if not matched_any:
                     # no balance info for this asset; skip reconciliation to avoid accidental zeroing
                     continue
-            # allow small rounding epsilon (e.g., 1e-8). Also skip cases where exchange reports zero total
+                # fallback matched_any -> treat as authoritative since keys matched
+                authoritative = True
+            # allow small rounding epsilon (e.g., 1e-8). If no matching keys were found at all,
+            # skip; otherwise accept zero as authoritative.
             EPS = 1e-8
-            if exch_qty <= EPS:
+            if exch_qty <= EPS and not authoritative:
                 print(f"Skipping reconciliation for {pair}: total exchange balance for asset is zero or no positive balances found")
                 continue
-            if exch_qty + EPS < float(pos.qty):
+            if pos is not None and exch_qty + EPS < float(pos.qty):
                 # exchange reports less than local -> reduce local to avoid sell failures
-                old_qty = pos.qty
                 print(f"Reconciling position {pair}: local qty={old_qty} -> exchange qty={exch_qty}")
                 rec = {
                     "ts": int(time.time()),
@@ -1058,13 +1029,17 @@ class Trader:
                 except Exception:
                     pass
                 try:
+                    # update existing position
                     self.positions[pair].qty = exch_qty
                 except Exception:
-                    self.positions[pair] = Position(pair=pair, qty=exch_qty, entry_price=pos.entry_price, stop_price=pos.stop_price, take_price=pos.take_price)
+                    # if pos was None for some reason, create a new Position preserving available meta
+                    entry_price = pos.entry_price if pos is not None else None
+                    stop_price = pos.stop_price if pos is not None else None
+                    take_price = pos.take_price if pos is not None else None
+                    self.positions[pair] = Position(pair=pair, qty=exch_qty, entry_price=entry_price, stop_price=stop_price, take_price=take_price)
                 changed = True
-            elif exch_qty > float(pos.qty) + EPS:
+            elif pos is None or exch_qty > float(pos.qty) + EPS:
                 # exchange reports more than local -> update local to reflect actual holdings
-                old_qty = pos.qty
                 print(f"Reconciling position {pair}: local qty={old_qty} -> exchange qty={exch_qty} (increasing local)")
                 rec = {
                     "ts": int(time.time()),
@@ -1079,9 +1054,14 @@ class Trader:
                 except Exception:
                     pass
                 try:
-                    self.positions[pair].qty = exch_qty
+                    # update or create the local position
+                    if pos is not None:
+                        self.positions[pair].qty = exch_qty
+                    else:
+                        self.positions[pair] = Position(pair=pair, qty=exch_qty, entry_price=None, stop_price=None, take_price=None)
                 except Exception:
-                    self.positions[pair] = Position(pair=pair, qty=exch_qty, entry_price=pos.entry_price, stop_price=pos.stop_price, take_price=pos.take_price)
+                    # last-resort: create new position
+                    self.positions[pair] = Position(pair=pair, qty=exch_qty, entry_price=None, stop_price=None, take_price=None)
                 changed = True
 
         if changed:
@@ -1089,6 +1069,218 @@ class Trader:
                 self.save_state()
             except Exception:
                 pass
+    async def check_and_execute_exits(self, pair: str, price: float):
+        """Check a single pair for stop/take triggers and attempt to close the position.
+
+        This extracts the existing exit logic so the runner can call it even
+        when allocations and other debug paths bypass `on_tick`.
+        """
+        pos = self.positions.get(pair)
+        # allow exit checks for any non-empty position; entry_price may be None for
+        # positions restored from exchange reconciliation, but we still want to
+        # close them on stop/take triggers. PnL computation will skip if entry is None.
+        if pos is None or not pos.qty:
+            return
+
+        cur_price = price
+        triggered = False
+        reason = None
+        if pos.stop_price is not None and cur_price <= pos.stop_price:
+            triggered = True
+            reason = "stop"
+        elif pos.take_price is not None and cur_price >= pos.take_price:
+            triggered = True
+            reason = "take"
+
+        # DEBUG: log stop/take evaluation details for this position
+        try:
+            la = None
+            try:
+                la = self._sell_attempts.get(pair)
+            except Exception:
+                la = None
+            le = None
+            try:
+                le = self._last_exits.get(pair)
+            except Exception:
+                le = None
+            print(f"[DEBUG stopcheck] pair={pair} cur_price={cur_price} stop_price={pos.stop_price} take_price={pos.take_price} qty={pos.qty} entry={pos.entry_price} triggered={triggered} reason={(reason if triggered else None)} sell_attempts={la} last_exit={le}")
+        except Exception:
+            pass
+
+        if not triggered:
+            return
+
+        # close the position via market sell
+        qty = pos.qty
+        # ensure we only attempt a live sell when next_try_ts allows
+        now_ts = time.time()
+        attempt = self._sell_attempts.get(pair, {"attempts": 0, "next_try_ts": 0.0})
+        if now_ts < attempt.get("next_try_ts", 0.0):
+            # not yet time to retry; skip for now
+            return
+
+        result = None
+        sold = False
+        if self.execute_orders and self.api_key and self.api_secret:
+            from .api import place_market_order
+
+            try:
+                result = await place_market_order(pair, qty, side="sell", api_key=self.api_key, api_secret=self.api_secret)
+                sold = True
+            except Exception as e:
+                errmsg = str(e).lower()
+                # If the failure looks like insufficient funds, reconcile only this pair and retry once
+                retried = False
+                if "insuff" in errmsg or "insufficient" in errmsg:
+                    try:
+                        await self.reconcile_positions(api_key=self.api_key, api_secret=self.api_secret, pairs=[pair])
+                        # after reconciliation, re-read the adjusted position quantity
+                        pos_after = self.positions.get(pair)
+                        if pos_after is not None:
+                            qty_after = pos_after.qty
+                            # only retry if qty_after > 0
+                            if qty_after and float(qty_after) > 0:
+                                try:
+                                    result = await place_market_order(pair, float(qty_after), side="sell", api_key=self.api_key, api_secret=self.api_secret)
+                                    sold = True
+                                    retried = True
+                                except Exception as e2:
+                                    # fall through to backoff logic with e2
+                                    e = e2
+                    except Exception:
+                        # reconciliation or retry failed; fall back to backoff logic
+                        pass
+
+                # on failure (or if not an insufficient-funds error), increment attempts and schedule next try (exponential backoff)
+                if not sold:
+                    attempt_count = attempt.get("attempts", 0) + 1
+                    # backoff: min 60s, exponential growth (2^attempt) capped at 3600s
+                    backoff = min(3600, 60 * (2 ** (attempt_count - 1)))
+                    next_try = now_ts + backoff
+                    self._sell_attempts[pair] = {"attempts": attempt_count, "next_try_ts": next_try}
+                    if retried:
+                        print(f"Live sell retry failed for {pair}: {e}. Next try in {backoff}s")
+                    else:
+                        print(f"Live sell attempt {attempt_count} failed for {pair}: {e}. Next try in {backoff}s")
+                    # persist attempt info
+                    try:
+                        self.save_state()
+                    except Exception:
+                        pass
+
+        # If not executing live orders, simulate the sell immediately
+        if not self.execute_orders:
+            try:
+                # simulated sell: compute pnl and log
+                entry = pos.entry_price
+                pnl = None
+                pnl_pct = None
+                try:
+                    if entry is not None:
+                        pnl = float((cur_price - float(entry)) * float(qty))
+                        pnl_pct = float((cur_price / float(entry)) - 1.0)
+                except Exception:
+                    pnl = None
+                    pnl_pct = None
+                rec = {
+                    "ts": int(time.time()),
+                    "type": "sell",
+                    "mode": "simulated",
+                    "pair": pair,
+                    "qty": qty,
+                    "price": cur_price,
+                    "entry_price": entry,
+                    "reason": reason,
+                    "pnl": pnl,
+                    "pnl_pct": pnl_pct,
+                }
+                try:
+                    self._write_trade(rec)
+                except Exception:
+                    pass
+                # record last exit and remove position
+                try:
+                    self._last_exits[pair] = {'ts': time.time(), 'price': float(cur_price), 'reason': reason}
+                except Exception:
+                    pass
+                try:
+                    self._sell_attempts.pop(pair, None)
+                except Exception:
+                    pass
+                try:
+                    self._pending_plans.pop(pair, None)
+                except Exception:
+                    pass
+                try:
+                    self.positions.pop(pair, None)
+                except Exception:
+                    pass
+                try:
+                    self.save_state()
+                except Exception:
+                    pass
+                sold = True
+            except Exception:
+                sold = False
+
+        if sold:
+            # successful live sell: log and remove position
+            mode = "live" if (self.execute_orders and self.api_key and self.api_secret) else "simulated"
+            print(f"Closing position {pair} at {cur_price} due to {reason}")
+            entry = pos.entry_price
+            pnl = None
+            pnl_pct = None
+            try:
+                if entry is not None:
+                    pnl = float((cur_price - float(entry)) * float(qty))
+                    pnl_pct = float((cur_price / float(entry)) - 1.0)
+            except Exception:
+                pnl = None
+                pnl_pct = None
+            rec = {
+                "ts": int(time.time()),
+                "type": "sell",
+                "mode": mode,
+                "pair": pair,
+                "qty": qty,
+                "price": cur_price,
+                "entry_price": entry,
+                "reason": reason,
+                "pnl": pnl,
+                "pnl_pct": pnl_pct,
+                "result": str(result) if result is not None else None,
+            }
+            try:
+                self._write_trade(rec)
+            except Exception:
+                pass
+            # record last exit info to prevent immediate re-entry
+            try:
+                self._last_exits[pair] = {'ts': time.time(), 'price': float(cur_price), 'reason': reason}
+            except Exception:
+                pass
+            # clear any pending attempt record
+            try:
+                self._sell_attempts.pop(pair, None)
+            except Exception:
+                pass
+            try:
+                self._pending_plans.pop(pair, None)
+            except Exception:
+                pass
+            try:
+                self.positions.pop(pair, None)
+            except Exception:
+                pass
+            try:
+                self.save_state()
+            except Exception:
+                pass
+        else:
+            # not sold this tick; keep position and retry later
+            # (we already recorded attempt and next_try_ts above)
+            pass
     def _get_trade_log_path(self) -> str:
         """Return current trade log path; rotate by UTC day when trade_log_file not set."""
         if self.trade_log_file:

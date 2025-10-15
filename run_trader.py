@@ -432,8 +432,13 @@ async def main(total_capital: float = 1000.0, n_assets: int = 5, debug: bool = F
                                     # do not persist planned trades even in debug mode; printing to stdout is sufficient
                                     if should_log:
                                         trader._last_logged_allocs = dict(allocs)
-                                else:
-                                    print("(no planned trades)")
+                                    else:
+                                        print("(no planned trades)")
+                                # Even in debug mode, run exit checks so stop/take are evaluated
+                                try:
+                                    await trader.check_and_execute_exits(pair, price)
+                                except Exception:
+                                    pass
                         else:
                             # collect diagnostics across models
                             diagnostics = []

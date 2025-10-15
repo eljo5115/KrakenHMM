@@ -3,3 +3,29 @@
 {"ts": 1760495236, "type": "reconcile", "pair": "XBT/USD", "old_qty": 0.0, "new_qty": 0.00178428, "note": "Updated local position to match exchange balances (restored/filled order)"}
 {"ts": 1760495853, "type": "reconcile", "pair": "ADA/USD", "old_qty": 0.0, "new_qty": 286.62657846, "note": "Updated local position to match exchange balances (restored/filled order)"}
 {"ts": 1760495853, "type": "reconcile", "pair": "XBT/USD", "old_qty": 0.0, "new_qty": 0.00178428, "note": "Updated local position to match exchange balances (restored/filled order)"}
+{"ts": 1760536160, "type": "sell", "mode": "live", "pair": "XBT/USD", "qty": 0.00178428, "price": 110887.7, "entry_price": 112089.8, "reason": "stop", "pnl": -2.1448829880000106, "pnl_pct": -0.01072443701389425, "result": "{'add_result': {'txid': ['OEHYDU-JUNA5-V7CCNU'], 'descr': {'order': 'sell 0.00178 XBTUSD @ market'}}, 'order_info': {}}"}
+{"ts": 1760562468, "type": "sell", "mode": "simulated", "pair": "ADA/USD", "qty": 286.62657846, "price": 100.2011793778137, "entry_price": 0.697772, "reason": "take", "pnl": 28520.321201814262, "pnl_pct": 142.6016053636628}
+{"ts": 1760562468, "type": "sell", "mode": "live", "pair": "ADA/USD", "qty": 286.62657846, "price": 100.2011793778137, "entry_price": 0.697772, "reason": "take", "pnl": 28520.321201814262, "pnl_pct": 142.6016053636628, "result": null}
+{"ts": 1760562468, "type": "sell", "mode": "simulated", "pair": "LINK/USD", "qty": 10.409569725640175, "price": 100.5757619160637, "entry_price": 19.21309, "reason": "take", "pnl": 846.9504063746508, "pnl_pct": 4.234752031873254}
+{"ts": 1760562468, "type": "sell", "mode": "live", "pair": "LINK/USD", "qty": 10.409569725640175, "price": 100.5757619160637, "entry_price": 19.21309, "reason": "take", "pnl": 846.9504063746508, "pnl_pct": 4.234752031873254, "result": null}
+{"ts": 1760565000, "type": "reconcile", "pair": "ETH/USD", "old_qty": 1.9646365422396856, "new_qty": 0.0009029334, "note": "Adjusted local position to match exchange balances (partial/filled orders)"}
+{"ts": 1760568510, "type": "reconcile", "pair": "ADA/USD", "old_qty": 0.0, "new_qty": 286.62657846, "note": "Updated local position to match exchange balances (restored/filled order)"}
+{"ts": 1760569127, "type": "set_thresholds", "pair": "XRP/USD", "base_price": 101.8, "stop_price": 99.56483306648815, "take_price": 106.27033386702371, "method": "model_state"}
+{"ts": 1760569127, "type": "set_thresholds", "pair": "ADA/USD", "base_price": 0.702091, "stop_price": 0.6677837586820643, "take_price": 0.7707054826358714, "method": "model_state"}
+{"ts": 1760569299, "type": "reconcile", "pair": "XMR/USD", "old_qty": 2.624746120429665, "new_qty": 0.0, "note": "Force-cleared local position at user request (exchange reported zero)"}
+{"ts": 1760569426, "type": "reconcile", "pair": "XMR/USD", "old_qty": 5.0, "new_qty": 0.0, "note": "Adjusted local position to match exchange balances (partial/filled orders)"}
+{"ts": 1760569553, "type": "reconcile", "pair": "XRP/USD", "old_qty": 1.9646365422396856, "new_qty": 0.0, "note": "Adjusted local position to match exchange balances (partial/filled orders)"}
+{"ts": 1760569789, "type": "prune_zero", "pair": "XRP/USD", "old_qty": 0.0, "new_qty": 0.0, "note": "Pruned zero-qty position after reconciliation"}
+{"ts": 1760569789, "type": "prune_zero", "pair": "XMR/USD", "old_qty": 0.0, "new_qty": 0.0, "note": "Pruned zero-qty position after reconciliation"}
+{"ts": 1760569825, "type": "reconcile", "pair": "LTC/USD", "old_qty": 1.9646365422396852, "new_qty": 0.0, "note": "Adjusted local position to match exchange balances (partial/filled orders)"}
+{"ts": 1760569825, "type": "prune_zero", "pair": "LTC/USD", "old_qty": 0.0, "new_qty": 0.0, "note": "Pruned zero-qty position after reconciliation"}
+{"ts": 1760569825, "type": "prune_zero", "pair": "XRP/USD", "old_qty": 0.0, "new_qty": 0.0, "note": "Pruned zero-qty position after reconciliation"}
+{"ts": 1760569825, "type": "prune_zero", "pair": "XMR/USD", "old_qty": 0.0, "new_qty": 0.0, "note": "Pruned zero-qty position after reconciliation"}
+{"ts": 1760570259, "type": "reconcile", "pair": "LINK/USD", "old_qty": 0.0, "new_qty": 10.40956972, "note": "Updated local position to match exchange balances (restored/filled order)"}
+{"ts": 1760570285, "type": "reconcile", "pair": "LINK/USD", "old_qty": 0.0, "new_qty": 10.40956972, "note": "Updated local position to match exchange balances (restored/filled order)"}
+{"ts": 1760570445, "type": "set_entry", "pair": "ADA/USD", "entry_price": 0.702091, "method": "reconcile_default_from_price"}
+{"ts": 1760570445, "type": "set_entry", "pair": "LINK/USD", "entry_price": 18.90725, "method": "reconcile_default_from_price"}
+{"ts": 1760570445, "type": "set_thresholds", "pair": "LINK/USD", "base_price": 18.90725, "stop_price": 18.18203998695939, "take_price": 20.357670026081223, "method": "model_state"}
+{"ts": 1760570463, "type": "set_entry", "pair": "ADA/USD", "entry_price": 0.702091, "method": "reconcile_default_from_price"}
+{"ts": 1760570463, "type": "set_entry", "pair": "LINK/USD", "entry_price": 18.90725, "method": "reconcile_default_from_price"}
+{"ts": 1760570463, "type": "set_thresholds", "pair": "LINK/USD", "base_price": 18.90725, "stop_price": 18.18203998695939, "take_price": 20.357670026081223, "method": "model_state"}

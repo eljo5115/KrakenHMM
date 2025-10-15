@@ -1,0 +1,81 @@
+{
+    "positions": {
+        "ETH/USD": {
+            "qty": 0.0009029334,
+            "entry_price": 198.59577961272876,
+            "stop_price": 3884.951383200614,
+            "take_price": 4350.097233598772
+        },
+        "ADA/USD": {
+            "qty": 286.62657846,
+            "entry_price": null,
+            "stop_price": 0.6677837586820643,
+            "take_price": 0.7707054826358714
+        },
+        "LINK/USD": {
+            "qty": 10.40956972,
+            "entry_price": null,
+            "stop_price": null,
+            "take_price": null
+        }
+    },
+    "last_desired_allocs": {},
+    "last_executed_allocs": {},
+    "last_allocation_date": "20251015",
+    "sell_attempts": {},
+    "last_exits": {
+        "LTC/USD": {
+            "ts": 1760431081.863682,
+            "price": 94.22,
+            "reason": "stop"
+        },
+        "FIL/USD": {
+            "ts": 1760357104.7790234,
+            "price": 1.62,
+            "reason": "stop"
+        },
+        "TRX/USD": {
+            "ts": 1760431079.6924086,
+            "price": 0.311826,
+            "reason": "stop"
+        },
+        "XBT/USD": {
+            "ts": 1760536160.8496234,
+            "price": 110887.7,
+            "reason": "stop"
+        },
+        "ADA/USD": {
+            "ts": 1760562468.9380422,
+            "price": 100.2011793778137,
+            "reason": "take"
+        },
+        "LINK/USD": {
+            "ts": 1760562468.9386883,
+            "price": 100.5757619160637,
+            "reason": "take"
+        }
+    },
+    "last_tick_ts": {
+        "XBT/USD": 1760562624.0,
+        "ETH/USD": 1760562624.0,
+        "LTC/USD": 1760562624.0,
+        "XRP/USD": 1760562624.0,
+        "XMR/USD": 1760562624.0,
+        "BCH/USD": 1760562624.0,
+        "ADA/USD": 1760562624.0,
+        "DOT/USD": 1760562624.0,
+        "LINK/USD": 1760562624.0,
+        "SOL/USD": 1760562624.0,
+        "UNI/USD": 1760562624.0,
+        "AAVE/USD": 1760562624.0,
+        "MKR/USD": 1760562624.0,
+        "COMP/USD": 1760562624.0,
+        "SUSHI/USD": 1760562624.0,
+        "ALGO/USD": 1760562624.0,
+        "ATOM/USD": 1760562624.0,
+        "FIL/USD": 1760562624.0,
+        "TRX/USD": 1760562624.0,
+        "EOS/USD": 1760562624.0,
+        "XTZ/USD": 1760562624.0
+    }
+}
