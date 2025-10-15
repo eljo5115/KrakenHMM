@@ -40,6 +40,8 @@ class Trader:
         self.times: Dict[str, List[float]] = {}
         # optional per-pair volumes
         self.volumes: Dict[str, List[float]] = {}
+        # last received tick timestamp per pair (unix seconds)
+        self.last_tick_ts: Dict[str, float] = {}
         self.models: Dict[str, HMMModel] = {}
         self.positions: Dict[str, Position] = {}
 
@@ -90,6 +92,11 @@ class Trader:
         # timestamp for this price tick
         if ts is None:
             ts = time.time()
+        # record last tick timestamp for quick monitoring/health checks
+        try:
+            self.last_tick_ts[pair] = float(ts)
+        except Exception:
+            pass
         tarr = self.times.setdefault(pair, [])
         tarr.append(float(ts))
         if volume is not None:
@@ -868,6 +875,7 @@ class Trader:
             'last_allocation_date': self._last_allocation_date,
             'sell_attempts': self._sell_attempts,
             'last_exits': self._last_exits,
+            'last_tick_ts': self.last_tick_ts,
         }
         with open(tmp, 'w') as f:
             json.dump(state, f)
@@ -889,6 +897,12 @@ class Trader:
             self._last_allocation_date = state.get('last_allocation_date')
             self._sell_attempts = state.get('sell_attempts', {})
             self._last_exits = state.get('last_exits', {})
+            # restore last_tick_ts (map values to floats)
+            raw_ticks = state.get('last_tick_ts', {}) or {}
+            try:
+                self.last_tick_ts = {k: float(v) for k, v in raw_ticks.items()}
+            except Exception:
+                self.last_tick_ts = dict(raw_ticks)
         except Exception:
             # ignore load errors and continue with empty state
             return
@@ -970,35 +984,67 @@ class Trader:
             if asset.upper() == 'BTC':
                 candidates.append('XBT')
 
-            found_balance = None
-            for c in candidates:
-                if c in balances:
-                    found_balance = balances[c]
-                    break
-            if found_balance is None:
-                # try fuzzy: check balances keys that endwith asset code
-                for k in balances.keys():
-                    if k.upper().endswith(asset.upper()):
+            # Aggregate matching balances across Kraken keys that refer to this asset.
+            # Prefer keys that end with '.F' (free for trading). If any '.F' keys exist for the
+            # asset, sum those and use that total. Otherwise, sum all positive matching balances
+            # (stripping leading X/Z and suffixes) as a fallback.
+            total_f = 0.0
+            total_other = 0.0
+            matched_any = False
+            matched_f = False
+            for k, v in balances.items():
+                try:
+                    kval = k.upper()
+                    # check if this key is a '.F' free key
+                    is_free = kval.endswith('.F')
+                    # base symbol before any dot (preserve prefixes like XXBT)
+                    base = kval.split('.', 1)[0]
+                    # match when base equals asset or base endswith asset (handles XXBT -> XBT)
+                    if base == asset.upper() or base.endswith(asset.upper()):
                         try:
-                            found_balance = float(balances[k])
-                            break
+                            fv = float(v)
                         except Exception:
                             continue
+                        matched_any = True
+                        if is_free:
+                            if fv > 0:
+                                total_f += fv
+                            matched_f = True
+                        else:
+                            if fv > 0:
+                                total_other += fv
+                except Exception:
+                    continue
 
-            if found_balance is None:
-                # no balance info for this asset; skip
+            # If we found .F entries, prefer their total; otherwise fall back to any positive matches.
+            if matched_f:
+                exch_qty = total_f
+            elif matched_any:
+                exch_qty = total_other
+            else:
+                # fallback: try endswith matching on original keys (legacy heuristic)
+                exch_qty = 0.0
+                for k, v in balances.items():
+                    try:
+                        if k.upper().endswith(asset.upper()):
+                            fv = float(v)
+                            if fv > 0:
+                                exch_qty += fv
+                                matched_any = True
+                    except Exception:
+                        continue
+                if not matched_any:
+                    # no balance info for this asset; skip reconciliation to avoid accidental zeroing
+                    continue
+            # allow small rounding epsilon (e.g., 1e-8). Also skip cases where exchange reports zero total
+            EPS = 1e-8
+            if exch_qty <= EPS:
+                print(f"Skipping reconciliation for {pair}: total exchange balance for asset is zero or no positive balances found")
                 continue
-
-            # if exchange reports less than local recorded qty (allow tiny epsilon), reduce local qty
-            try:
-                exch_qty = float(found_balance)
-            except Exception:
-                continue
-            # allow small rounding epsilon (e.g., 1e-8)
-            if exch_qty + 1e-8 < float(pos.qty):
+            if exch_qty + EPS < float(pos.qty):
+                # exchange reports less than local -> reduce local to avoid sell failures
                 old_qty = pos.qty
                 print(f"Reconciling position {pair}: local qty={old_qty} -> exchange qty={exch_qty}")
-                # log reconciliation as a special record in trade log
                 rec = {
                     "ts": int(time.time()),
                     "type": "reconcile",
@@ -1011,7 +1057,27 @@ class Trader:
                     self._write_trade(rec)
                 except Exception:
                     pass
-                # update local position qty; keep entry_price/thresholds unchanged
+                try:
+                    self.positions[pair].qty = exch_qty
+                except Exception:
+                    self.positions[pair] = Position(pair=pair, qty=exch_qty, entry_price=pos.entry_price, stop_price=pos.stop_price, take_price=pos.take_price)
+                changed = True
+            elif exch_qty > float(pos.qty) + EPS:
+                # exchange reports more than local -> update local to reflect actual holdings
+                old_qty = pos.qty
+                print(f"Reconciling position {pair}: local qty={old_qty} -> exchange qty={exch_qty} (increasing local)")
+                rec = {
+                    "ts": int(time.time()),
+                    "type": "reconcile",
+                    "pair": pair,
+                    "old_qty": old_qty,
+                    "new_qty": exch_qty,
+                    "note": "Updated local position to match exchange balances (restored/filled order)",
+                }
+                try:
+                    self._write_trade(rec)
+                except Exception:
+                    pass
                 try:
                     self.positions[pair].qty = exch_qty
                 except Exception:

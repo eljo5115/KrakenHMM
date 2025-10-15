@@ -251,6 +251,79 @@ async def main(total_capital: float = 1000.0, n_assets: int = 5, debug: bool = F
                     "stop_price": pos.stop_price,
                     "take_price": pos.take_price,
                 }
+            # include last_tick_ts when available for monitoring
+            try:
+                for p in list(out.keys()):
+                    ts = trader.last_tick_ts.get(p)
+                    if ts is not None:
+                        out[p]["last_tick_ts"] = float(ts)
+            except Exception:
+                pass
+            # If API credentials are available for the trader, fetch live balances
+            # and include per-pair exchange_free (sum of .F keys) and exchange_total
+            # (fallback to sum of other positive matches).
+            try:
+                if getattr(trader, 'api_key', None) and getattr(trader, 'api_secret', None):
+                    from kraken_hmm.api import get_balances
+
+                    try:
+                        balances = await get_balances(trader.api_key, trader.api_secret)
+                    except Exception:
+                        balances = {}
+
+                    # compute per-pair totals
+                    for p in list(out.keys()):
+                        try:
+                            asset = p.split('/')[0]
+                            total_f = 0.0
+                            total_other = 0.0
+                            matched_any = False
+                            matched_f = False
+                            for k, v in balances.items():
+                                try:
+                                            kval = k.upper()
+                                            is_free = kval.endswith('.F')
+                                            base = kval.split('.', 1)[0]
+                                            if base == asset.upper() or base.endswith(asset.upper()):
+                                                fv = float(v)
+                                                matched_any = True
+                                                if is_free:
+                                                    if fv > 0:
+                                                        total_f += fv
+                                                    matched_f = True
+                                                else:
+                                                    if fv > 0:
+                                                        total_other += fv
+                                except Exception:
+                                    continue
+
+                            if matched_f:
+                                exch_free = total_f
+                                exch_total = total_f + total_other
+                            elif matched_any:
+                                exch_free = 0.0
+                                exch_total = total_other
+                            else:
+                                # try suffix heuristic
+                                exch_free = 0.0
+                                exch_total = 0.0
+                                for k, v in balances.items():
+                                    try:
+                                        if k.upper().endswith(asset.upper()):
+                                            fv = float(v)
+                                            if fv > 0:
+                                                exch_total += fv
+                                    except Exception:
+                                        continue
+
+                            out[p]['exchange_free'] = exch_free
+                            out[p]['exchange_total'] = exch_total
+                        except Exception:
+                            continue
+            except Exception:
+                # best-effort: don't block API if balance lookup fails
+                pass
+
             return web.json_response(out)
 
         app.add_routes([web.get('/health', health), web.get('/positions', positions)])
